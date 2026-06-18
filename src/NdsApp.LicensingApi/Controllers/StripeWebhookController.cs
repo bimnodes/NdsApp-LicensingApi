@@ -53,16 +53,17 @@ public sealed class StripeWebhookController : ControllerBase
             stripeEvent = EventUtility.ConstructEvent(
                 payload,
                 signatureHeader.ToString(),
-                _stripeOptions.WebhookSecret);
+                _stripeOptions.WebhookSecret,
+                throwOnApiVersionMismatch: false);
         }
         catch (StripeException ex)
         {
-            _logger.LogWarning(ex, "Invalid Stripe webhook signature.");
+            _logger.LogWarning(ex, "Stripe webhook event validation failed.");
             return Unauthorized(new
             {
                 success = false,
-                code = "invalid_stripe_signature",
-                message = "Invalid Stripe webhook signature."
+                code = "stripe_event_validation_failed",
+                message = "Stripe webhook event validation failed."
             });
         }
 
