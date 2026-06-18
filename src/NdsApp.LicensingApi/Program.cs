@@ -1,4 +1,15 @@
+using NdsApp.LicensingApi.Options;
+using NdsApp.LicensingApi.Services;
+
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<BackendOptions>(
+    builder.Configuration.GetSection(BackendOptions.SectionName));
+
+builder.Services.Configure<SupabaseOptions>(
+    builder.Configuration.GetSection(SupabaseOptions.SectionName));
+
+builder.Services.AddHttpClient<ILicensingService, SupabaseLicensingService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
