@@ -9,6 +9,9 @@ builder.Services.Configure<BackendOptions>(
 builder.Services.Configure<SupabaseOptions>(
     builder.Configuration.GetSection(SupabaseOptions.SectionName));
 
+builder.Services.Configure<StripeOptions>(
+    builder.Configuration.GetSection(StripeOptions.SectionName));
+
 builder.Services.AddHttpClient<ILicensingService, SupabaseLicensingService>();
 
 builder.Services.AddControllers();
