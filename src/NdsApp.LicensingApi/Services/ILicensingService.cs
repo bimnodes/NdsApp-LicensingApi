@@ -8,4 +8,6 @@ public interface ILicensingService
     Task<JsonElement> ActivateAsync(ActivateLicenseRequest request, CancellationToken cancellationToken);
 
     Task<JsonElement> CheckAsync(CheckActivationRequest request, CancellationToken cancellationToken);
+
+    Task<JsonElement> SyncStripeSubscriptionAsync(StripeSubscriptionSyncRequest request, CancellationToken cancellationToken);
 }
