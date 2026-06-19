@@ -61,6 +61,28 @@ public sealed class SupabaseLicensingService : ILicensingService
         return PostRpcAsync("nds_check_activation", payload, cancellationToken);
     }
 
+    public Task<JsonElement> SyncStripeSubscriptionAsync(StripeSubscriptionSyncRequest request, CancellationToken cancellationToken)
+    {
+        var rawData = request.RawData.ValueKind == JsonValueKind.Undefined
+            ? new Dictionary<string, object?>()
+            : request.RawData;
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["p_email"] = request.Email,
+            ["p_stripe_customer_id"] = request.StripeCustomerId,
+            ["p_stripe_subscription_id"] = request.StripeSubscriptionId,
+            ["p_stripe_price_id"] = request.StripePriceId,
+            ["p_stripe_status"] = request.StripeStatus,
+            ["p_current_period_start"] = request.CurrentPeriodStart,
+            ["p_current_period_end"] = request.CurrentPeriodEnd,
+            ["p_checkout_session_id"] = request.CheckoutSessionId,
+            ["p_raw_data"] = rawData
+        };
+
+        return PostRpcAsync("nds_sync_stripe_subscription", payload, cancellationToken);
+    }
+
     private async Task<JsonElement> PostRpcAsync(string functionName, object payload, CancellationToken cancellationToken)
     {
         using var response = await _httpClient.PostAsJsonAsync(
