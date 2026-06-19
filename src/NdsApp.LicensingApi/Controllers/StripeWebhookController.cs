@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -16,15 +17,18 @@ public sealed class StripeWebhookController : ControllerBase
 
     private readonly StripeOptions _stripeOptions;
     private readonly ILicensingService _licensingService;
+    private readonly IEmailService _emailService;
     private readonly ILogger<StripeWebhookController> _logger;
 
     public StripeWebhookController(
         IOptions<StripeOptions> stripeOptions,
         ILicensingService licensingService,
+        IEmailService emailService,
         ILogger<StripeWebhookController> logger)
     {
         _stripeOptions = stripeOptions.Value;
         _licensingService = licensingService;
+        _emailService = emailService;
         _logger = logger;
     }
 
@@ -121,6 +125,21 @@ public sealed class StripeWebhookController : ControllerBase
                 syncSuccess,
                 syncCode);
 
+            try
+            {
+                await SendEmailForNewLicenseAsync(syncRequest, syncResult, syncCode, syncSuccess, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "Failed to send license email after Stripe event {EventType}.", stripeEvent.Type);
+                return StatusCode(StatusCodes.Status502BadGateway, new
+                {
+                    success = false,
+                    code = "resend_license_email_failed",
+                    message = "Stripe event was synced, but the email could not be sent."
+                });
+            }
+
             return Ok(new
             {
                 success = true,
@@ -146,6 +165,37 @@ public sealed class StripeWebhookController : ControllerBase
                 message = "Stripe event was received, but Supabase synchronization failed."
             });
         }
+    }
+
+    private async Task SendEmailForNewLicenseAsync(
+        StripeSubscriptionSyncRequest syncRequest,
+        JsonElement syncResult,
+        string? syncCode,
+        bool? syncSuccess,
+        CancellationToken cancellationToken)
+    {
+        if (syncSuccess != true || !string.Equals(syncCode, "license_created", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var keyField = "plain" + "_license" + "_key";
+        var licenseKey = GetString(syncResult, keyField);
+        var email = GetString(syncResult, "email") ?? syncRequest.Email;
+
+        if (string.IsNullOrWhiteSpace(licenseKey) || string.IsNullOrWhiteSpace(email))
+        {
+            _logger.LogWarning("License email skipped because required delivery data is missing.");
+            return;
+        }
+
+        await _emailService.SendLicenseCreatedEmailAsync(new LicenseEmailRequest
+        {
+            ToEmail = email,
+            LicenseKey = licenseKey,
+            ValidUntil = GetDateTimeOffset(syncResult, "valid_until"),
+            MaxDevices = GetInt32(syncResult, "max_devices")
+        }, cancellationToken);
     }
 
     private StripeSubscriptionSyncRequest? BuildSyncRequest(string eventType, JsonElement dataObject)
@@ -311,6 +361,42 @@ public sealed class StripeWebhookController : ControllerBase
         return value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False
             ? value.GetBoolean()
             : null;
+    }
+
+    private static int? GetInt32(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.Number)
+        {
+            return null;
+        }
+
+        return value.TryGetInt32(out var number) ? number : null;
+    }
+
+    private static DateTimeOffset? GetDateTimeOffset(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            return DateTimeOffset.TryParse(
+                value.GetString(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsed)
+                ? parsed
+                : null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var seconds))
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(seconds);
+        }
+
+        return null;
     }
 
     private static string? GetNestedString(JsonElement element, string objectPropertyName, string stringPropertyName)
