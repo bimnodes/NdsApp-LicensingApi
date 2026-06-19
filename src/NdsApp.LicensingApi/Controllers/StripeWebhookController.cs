@@ -146,9 +146,11 @@ public sealed class StripeWebhookController : ControllerBase
         return eventType switch
         {
             "checkout.session.completed" => BuildCheckoutSessionCompletedRequest(dataObject),
+            "customer.subscription.created" => BuildSubscriptionRequest(dataObject),
             "customer.subscription.updated" => BuildSubscriptionRequest(dataObject),
             "customer.subscription.deleted" => BuildSubscriptionRequest(dataObject, statusOverride: "canceled"),
-            "invoice.payment_failed" => BuildInvoicePaymentFailedRequest(dataObject),
+            "invoice.payment_succeeded" => BuildInvoiceRequest(dataObject, statusOverride: "active"),
+            "invoice.payment_failed" => BuildInvoiceRequest(dataObject, statusOverride: "past_due"),
             _ => null
         };
     }
@@ -194,7 +196,7 @@ public sealed class StripeWebhookController : ControllerBase
         };
     }
 
-    private StripeSubscriptionSyncRequest? BuildInvoicePaymentFailedRequest(JsonElement dataObject)
+    private StripeSubscriptionSyncRequest? BuildInvoiceRequest(JsonElement dataObject, string statusOverride)
     {
         var subscriptionId = GetString(dataObject, "subscription");
         if (string.IsNullOrWhiteSpace(subscriptionId))
@@ -208,7 +210,7 @@ public sealed class StripeWebhookController : ControllerBase
             StripeCustomerId = GetString(dataObject, "customer"),
             StripeSubscriptionId = subscriptionId,
             StripePriceId = GetInvoicePriceId(dataObject) ?? _stripeOptions.NdsAppAnnualPriceId,
-            StripeStatus = "past_due",
+            StripeStatus = statusOverride,
             CurrentPeriodStart = GetInvoiceLinePeriodTimestamp(dataObject, "start"),
             CurrentPeriodEnd = GetInvoiceLinePeriodTimestamp(dataObject, "end"),
             RawData = dataObject.Clone()
