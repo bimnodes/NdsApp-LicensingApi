@@ -105,14 +105,21 @@ public sealed class StripeWebhookController : ControllerBase
             });
         }
 
+        syncRequest = await ResolveMissingEmailAsync(syncRequest, cancellationToken);
+
         try
         {
             var syncResult = await _licensingService.SyncStripeSubscriptionAsync(syncRequest, cancellationToken);
 
+            var syncCode = GetString(syncResult, "code");
+            var syncSuccess = GetBoolean(syncResult, "success");
+
             _logger.LogInformation(
-                "Received Stripe event {EventType}. Synced subscription {SubscriptionId}.",
+                "Received Stripe event {EventType}. Synced subscription {SubscriptionId}. Result: {SyncSuccess} {SyncCode}.",
                 stripeEvent.Type,
-                syncRequest.StripeSubscriptionId);
+                syncRequest.StripeSubscriptionId,
+                syncSuccess,
+                syncCode);
 
             return Ok(new
             {
@@ -217,6 +224,51 @@ public sealed class StripeWebhookController : ControllerBase
         };
     }
 
+    private async Task<StripeSubscriptionSyncRequest> ResolveMissingEmailAsync(
+        StripeSubscriptionSyncRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(request.Email) ||
+            string.IsNullOrWhiteSpace(request.StripeCustomerId) ||
+            string.IsNullOrWhiteSpace(_stripeOptions.SecretKey))
+        {
+            return request;
+        }
+
+        try
+        {
+            var customerService = new CustomerService();
+            var customer = await customerService.GetAsync(
+                request.StripeCustomerId,
+                options: null,
+                requestOptions: new RequestOptions { ApiKey = _stripeOptions.SecretKey },
+                cancellationToken: cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(customer.Email))
+            {
+                return request;
+            }
+
+            return new StripeSubscriptionSyncRequest
+            {
+                Email = customer.Email,
+                StripeCustomerId = request.StripeCustomerId,
+                StripeSubscriptionId = request.StripeSubscriptionId,
+                StripePriceId = request.StripePriceId,
+                StripeStatus = request.StripeStatus,
+                CurrentPeriodStart = request.CurrentPeriodStart,
+                CurrentPeriodEnd = request.CurrentPeriodEnd,
+                CheckoutSessionId = request.CheckoutSessionId,
+                RawData = request.RawData
+            };
+        }
+        catch (StripeException ex)
+        {
+            _logger.LogWarning(ex, "Could not resolve Stripe customer email for customer {CustomerId}.", request.StripeCustomerId);
+            return request;
+        }
+    }
+
     private string? ResolvePriceId(string? stripeEventPriceId)
     {
         return string.IsNullOrWhiteSpace(_stripeOptions.NdsAppAnnualPriceId)
@@ -247,6 +299,18 @@ public sealed class StripeWebhookController : ControllerBase
         }
 
         return value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    }
+
+    private static bool? GetBoolean(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False
+            ? value.GetBoolean()
+            : null;
     }
 
     private static string? GetNestedString(JsonElement element, string objectPropertyName, string stringPropertyName)
