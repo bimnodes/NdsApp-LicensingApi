@@ -168,7 +168,7 @@ public sealed class StripeWebhookController : ControllerBase
             Email = GetString(dataObject, "customer_email") ?? GetNestedString(dataObject, "customer_details", "email"),
             StripeCustomerId = GetString(dataObject, "customer"),
             StripeSubscriptionId = subscriptionId,
-            StripePriceId = _stripeOptions.NdsAppAnnualPriceId,
+            StripePriceId = ResolvePriceId(null),
             StripeStatus = "active",
             CheckoutSessionId = GetString(dataObject, "id"),
             RawData = dataObject.Clone()
@@ -188,7 +188,7 @@ public sealed class StripeWebhookController : ControllerBase
             Email = GetString(dataObject, "customer_email"),
             StripeCustomerId = GetString(dataObject, "customer"),
             StripeSubscriptionId = subscriptionId,
-            StripePriceId = GetSubscriptionPriceId(dataObject) ?? _stripeOptions.NdsAppAnnualPriceId,
+            StripePriceId = ResolvePriceId(GetSubscriptionPriceId(dataObject)),
             StripeStatus = statusOverride ?? GetString(dataObject, "status"),
             CurrentPeriodStart = GetUnixTimestamp(dataObject, "current_period_start"),
             CurrentPeriodEnd = GetUnixTimestamp(dataObject, "current_period_end"),
@@ -209,12 +209,19 @@ public sealed class StripeWebhookController : ControllerBase
             Email = GetString(dataObject, "customer_email"),
             StripeCustomerId = GetString(dataObject, "customer"),
             StripeSubscriptionId = subscriptionId,
-            StripePriceId = GetInvoicePriceId(dataObject) ?? _stripeOptions.NdsAppAnnualPriceId,
+            StripePriceId = ResolvePriceId(GetInvoicePriceId(dataObject)),
             StripeStatus = statusOverride,
             CurrentPeriodStart = GetInvoiceLinePeriodTimestamp(dataObject, "start"),
             CurrentPeriodEnd = GetInvoiceLinePeriodTimestamp(dataObject, "end"),
             RawData = dataObject.Clone()
         };
+    }
+
+    private string? ResolvePriceId(string? stripeEventPriceId)
+    {
+        return string.IsNullOrWhiteSpace(_stripeOptions.NdsAppAnnualPriceId)
+            ? stripeEventPriceId
+            : _stripeOptions.NdsAppAnnualPriceId;
     }
 
     private static bool TryGetDataObject(JsonElement root, out JsonElement dataObject)
