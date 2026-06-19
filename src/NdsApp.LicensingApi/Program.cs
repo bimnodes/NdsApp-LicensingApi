@@ -12,7 +12,11 @@ builder.Services.Configure<SupabaseOptions>(
 builder.Services.Configure<StripeOptions>(
     builder.Configuration.GetSection(StripeOptions.SectionName));
 
+builder.Services.Configure<ResendOptions>(
+    builder.Configuration.GetSection(ResendOptions.SectionName));
+
 builder.Services.AddHttpClient<ILicensingService, SupabaseLicensingService>();
+builder.Services.AddHttpClient<IEmailService, ResendEmailService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
