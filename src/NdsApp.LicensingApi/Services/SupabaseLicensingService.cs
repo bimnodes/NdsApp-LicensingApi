@@ -63,9 +63,16 @@ public sealed class SupabaseLicensingService : ILicensingService
 
     public Task<JsonElement> SyncStripeSubscriptionAsync(StripeSubscriptionSyncRequest request, CancellationToken cancellationToken)
     {
-        var rawData = request.RawData.ValueKind == JsonValueKind.Undefined
-            ? new Dictionary<string, object?>()
-            : request.RawData;
+        object rawData;
+
+        if (request.RawData.ValueKind == JsonValueKind.Undefined)
+        {
+            rawData = new Dictionary<string, object?>();
+        }
+        else
+        {
+            rawData = request.RawData;
+        }
 
         var payload = new Dictionary<string, object?>
         {
