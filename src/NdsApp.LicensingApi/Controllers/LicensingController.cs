@@ -84,4 +84,74 @@ public sealed class LicensingController : ControllerBase
             });
         }
     }
+
+    [HttpPost("plugin-access")]
+    public async Task<IActionResult> CheckPluginAccess(
+        [FromBody] CheckPluginAccessRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.ActivationId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(request.MachineHash) ||
+            string.IsNullOrWhiteSpace(request.PluginId))
+        {
+            return BadRequest(new
+            {
+                success = false,
+                code = "invalid_request",
+                message = "Activation id, machine hash and plugin id are required."
+            });
+        }
+
+        try
+        {
+            var result = await _licensingService.CheckPluginAccessAsync(request, cancellationToken);
+            return Ok(result);
+        }
+        catch (SupabaseRpcException ex)
+        {
+            _logger.LogError(ex, "Supabase plugin access RPC failed with status {StatusCode}.", ex.StatusCode);
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                success = false,
+                code = "supabase_rpc_failed",
+                message = "Plugin access service failed."
+            });
+        }
+    }
+
+    [HttpPost("plugin-usage")]
+    public async Task<IActionResult> ReportPluginUsage(
+        [FromBody] ReportPluginUsageRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.ActivationId == Guid.Empty ||
+            request.ExecutionId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(request.MachineHash) ||
+            string.IsNullOrWhiteSpace(request.PluginId) ||
+            string.IsNullOrWhiteSpace(request.ExecutionStatus))
+        {
+            return BadRequest(new
+            {
+                success = false,
+                code = "invalid_request",
+                message = "Activation id, execution id, machine hash, plugin id and execution status are required."
+            });
+        }
+
+        try
+        {
+            var result = await _licensingService.ReportPluginUsageAsync(request, cancellationToken);
+            return Ok(result);
+        }
+        catch (SupabaseRpcException ex)
+        {
+            _logger.LogError(ex, "Supabase plugin usage RPC failed with status {StatusCode}.", ex.StatusCode);
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                success = false,
+                code = "supabase_rpc_failed",
+                message = "Plugin usage service failed."
+            });
+        }
+    }
 }
