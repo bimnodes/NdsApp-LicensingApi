@@ -61,6 +61,32 @@ public sealed class SupabaseLicensingService : ILicensingService
         return PostRpcAsync("nds_check_activation", payload, cancellationToken);
     }
 
+    public Task<JsonElement> CheckPluginAccessAsync(CheckPluginAccessRequest request, CancellationToken cancellationToken)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["p_activation_id"] = request.ActivationId,
+            ["p_machine_hash"] = request.MachineHash,
+            ["p_plugin_id"] = request.PluginId
+        };
+
+        return PostRpcAsync("nds_check_plugin_access", payload, cancellationToken);
+    }
+
+    public Task<JsonElement> ReportPluginUsageAsync(ReportPluginUsageRequest request, CancellationToken cancellationToken)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["p_activation_id"] = request.ActivationId,
+            ["p_machine_hash"] = request.MachineHash,
+            ["p_plugin_id"] = request.PluginId,
+            ["p_execution_id"] = request.ExecutionId,
+            ["p_execution_status"] = request.ExecutionStatus
+        };
+
+        return PostRpcAsync("nds_report_plugin_usage", payload, cancellationToken);
+    }
+
     public Task<JsonElement> SyncStripeSubscriptionAsync(StripeSubscriptionSyncRequest request, CancellationToken cancellationToken)
     {
         object rawData;
