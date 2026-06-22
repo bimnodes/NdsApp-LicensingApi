@@ -9,5 +9,9 @@ public interface ILicensingService
 
     Task<JsonElement> CheckAsync(CheckActivationRequest request, CancellationToken cancellationToken);
 
+    Task<JsonElement> CheckPluginAccessAsync(CheckPluginAccessRequest request, CancellationToken cancellationToken);
+
+    Task<JsonElement> ReportPluginUsageAsync(ReportPluginUsageRequest request, CancellationToken cancellationToken);
+
     Task<JsonElement> SyncStripeSubscriptionAsync(StripeSubscriptionSyncRequest request, CancellationToken cancellationToken);
 }
