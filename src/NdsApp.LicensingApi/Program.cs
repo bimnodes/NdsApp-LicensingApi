@@ -17,6 +17,7 @@ builder.Services.Configure<ResendOptions>(
 
 builder.Services.AddHttpClient<ILicensingService, SupabaseLicensingService>();
 builder.Services.AddHttpClient<IEmailService, ResendEmailService>();
+builder.Services.AddScoped<IPaygBillingService, PaygBillingService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
