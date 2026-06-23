@@ -1,0 +1,3 @@
+FROM curlimages/curl:8.11.1
+
+CMD ["sh", "-c", "curl -fsS -X POST \"$PAYG_BILLING_URL\" -H \"X-Payg-Billing-Secret: $PAYG_BILLING_SECRET\""]
