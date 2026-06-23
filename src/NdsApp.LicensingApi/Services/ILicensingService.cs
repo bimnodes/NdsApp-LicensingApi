@@ -26,6 +26,4 @@ public interface ILicensingService
     Task<JsonElement> CompletePaygBillingRunAsync(Guid billingRunId, CancellationToken cancellationToken);
 
     Task<JsonElement> SyncPaygInvoiceStatusAsync(string stripeInvoiceId, string? stripeInvoiceStatus, string eventType, JsonElement rawData, CancellationToken cancellationToken);
-
-    Task<JsonElement> GetCustomerPortalContextAsync(CreateCustomerPortalSessionRequest request, CancellationToken cancellationToken);
 }
