@@ -9,4 +9,6 @@ public sealed class StripeOptions
     public string WebhookSecret { get; init; } = string.Empty;
 
     public string NdsAppAnnualPriceId { get; init; } = string.Empty;
+
+    public string PaygBillingSecret { get; init; } = string.Empty;
 }
