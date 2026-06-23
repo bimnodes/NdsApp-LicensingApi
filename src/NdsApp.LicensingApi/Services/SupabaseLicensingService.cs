@@ -171,6 +171,23 @@ public sealed class SupabaseLicensingService : ILicensingService
         return PostRpcAsync("nds_complete_payg_billing_run", payload, cancellationToken);
     }
 
+    public Task<JsonElement> SyncPaygInvoiceStatusAsync(string stripeInvoiceId, string? stripeInvoiceStatus, string eventType, JsonElement rawData, CancellationToken cancellationToken)
+    {
+        object rawDataPayload = rawData.ValueKind == JsonValueKind.Undefined
+            ? new Dictionary<string, object?>()
+            : rawData;
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["p_stripe_invoice_id"] = stripeInvoiceId,
+            ["p_stripe_invoice_status"] = stripeInvoiceStatus,
+            ["p_event_type"] = eventType,
+            ["p_raw_data"] = rawDataPayload
+        };
+
+        return PostRpcAsync("nds_sync_payg_invoice_status", payload, cancellationToken);
+    }
+
     private async Task<JsonElement> PostRpcAsync(string functionName, object payload, CancellationToken cancellationToken)
     {
         using var response = await _httpClient.PostAsJsonAsync(
