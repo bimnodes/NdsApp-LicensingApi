@@ -11,4 +11,6 @@ public sealed class StripeOptions
     public string NdsAppAnnualPriceId { get; init; } = string.Empty;
 
     public string PaygBillingSecret { get; init; } = string.Empty;
+
+    public string CustomerPortalReturnUrl { get; init; } = string.Empty;
 }
