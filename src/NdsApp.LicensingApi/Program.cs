@@ -16,6 +16,7 @@ builder.Services.Configure<ResendOptions>(
     builder.Configuration.GetSection(ResendOptions.SectionName));
 
 builder.Services.AddHttpClient<ILicensingService, SupabaseLicensingService>();
+builder.Services.AddHttpClient<ICustomerPortalContextService, SupabaseCustomerPortalContextService>();
 builder.Services.AddHttpClient<IEmailService, ResendEmailService>();
 builder.Services.AddScoped<IPaygBillingService, PaygBillingService>();
 
