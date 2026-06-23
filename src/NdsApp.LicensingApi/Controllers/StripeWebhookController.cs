@@ -284,16 +284,12 @@ public sealed class StripeWebhookController : ControllerBase
             return null;
         }
 
-        return new StripeSubscriptionSyncRequest
-        {
-            Email = GetString(dataObject, "customer_email") ?? GetNestedString(dataObject, "customer_details", "email"),
-            StripeCustomerId = GetString(dataObject, "customer"),
-            StripeSubscriptionId = subscriptionId,
-            StripePriceId = ResolvePriceId(null),
-            StripeStatus = "active",
-            CheckoutSessionId = GetString(dataObject, "id"),
-            RawData = dataObject.Clone()
-        };
+        _logger.LogInformation(
+            "Checkout session {CheckoutSessionId} completed for subscription {SubscriptionId}. Subscription events will perform license sync.",
+            GetString(dataObject, "id"),
+            subscriptionId);
+
+        return null;
     }
 
     private StripeSubscriptionSyncRequest? BuildSubscriptionRequest(JsonElement dataObject, string? statusOverride = null)
@@ -385,8 +381,13 @@ public sealed class StripeWebhookController : ControllerBase
 
     private string? ResolvePriceId(string? stripeEventPriceId)
     {
+        if (!string.IsNullOrWhiteSpace(stripeEventPriceId))
+        {
+            return stripeEventPriceId;
+        }
+
         return string.IsNullOrWhiteSpace(_stripeOptions.NdsAppAnnualPriceId)
-            ? stripeEventPriceId
+            ? null
             : _stripeOptions.NdsAppAnnualPriceId;
     }
 
