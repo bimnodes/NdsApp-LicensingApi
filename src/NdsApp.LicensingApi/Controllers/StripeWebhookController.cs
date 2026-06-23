@@ -95,6 +95,11 @@ public sealed class StripeWebhookController : ControllerBase
             });
         }
 
+        if (IsPaygInvoiceEvent(stripeEvent.Type, dataObject))
+        {
+            return await HandlePaygInvoiceEventAsync(stripeEvent.Type, dataObject, cancellationToken);
+        }
+
         var syncRequest = BuildSyncRequest(stripeEvent.Type, dataObject);
 
         if (syncRequest is null)
@@ -163,6 +168,65 @@ public sealed class StripeWebhookController : ControllerBase
                 success = false,
                 code = "supabase_stripe_sync_failed",
                 message = "Stripe event was received, but Supabase synchronization failed."
+            });
+        }
+    }
+
+    private async Task<IActionResult> HandlePaygInvoiceEventAsync(
+        string eventType,
+        JsonElement dataObject,
+        CancellationToken cancellationToken)
+    {
+        var stripeInvoiceId = GetString(dataObject, "id");
+        if (string.IsNullOrWhiteSpace(stripeInvoiceId))
+        {
+            return Ok(new
+            {
+                success = true,
+                received = true,
+                event_type = eventType,
+                handled = false,
+                message = "PayG invoice event received but invoice id was missing."
+            });
+        }
+
+        try
+        {
+            var syncResult = await _licensingService.SyncPaygInvoiceStatusAsync(
+                stripeInvoiceId,
+                GetString(dataObject, "status"),
+                eventType,
+                dataObject.Clone(),
+                cancellationToken);
+
+            _logger.LogInformation(
+                "Received Stripe PayG invoice event {EventType}. Invoice {StripeInvoiceId} synced.",
+                eventType,
+                stripeInvoiceId);
+
+            return Ok(new
+            {
+                success = true,
+                received = true,
+                event_type = eventType,
+                handled = true,
+                payg_sync_result = RedactSensitiveFields(syncResult)
+            });
+        }
+        catch (SupabaseRpcException ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to sync Stripe PayG invoice event {EventType} with Supabase. Status code: {StatusCode}. Response: {ResponseBody}",
+                eventType,
+                ex.StatusCode,
+                ex.ResponseBody);
+
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                success = false,
+                code = "supabase_payg_invoice_sync_failed",
+                message = "Stripe PayG invoice event was received, but Supabase synchronization failed."
             });
         }
     }
@@ -324,6 +388,20 @@ public sealed class StripeWebhookController : ControllerBase
         return string.IsNullOrWhiteSpace(_stripeOptions.NdsAppAnnualPriceId)
             ? stripeEventPriceId
             : _stripeOptions.NdsAppAnnualPriceId;
+    }
+
+    private static bool IsPaygInvoiceEvent(string eventType, JsonElement dataObject)
+    {
+        if (!eventType.StartsWith("invoice.", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var billingType = GetNestedString(dataObject, "metadata", "ndsapp_billing_type");
+        var paygInvoiceId = GetNestedString(dataObject, "metadata", "ndsapp_payg_invoice_id");
+
+        return string.Equals(billingType, "payg_postpaid", StringComparison.OrdinalIgnoreCase) ||
+               !string.IsNullOrWhiteSpace(paygInvoiceId);
     }
 
     private static bool TryGetDataObject(JsonElement root, out JsonElement dataObject)
