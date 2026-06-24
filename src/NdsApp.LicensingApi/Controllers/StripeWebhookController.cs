@@ -315,12 +315,12 @@ public sealed class StripeWebhookController : ControllerBase
 
     private StripeSubscriptionSyncRequest? BuildInvoiceRequest(JsonElement dataObject, string statusOverride)
     {
-        var subscriptionId = GetString(dataObject, "subscription");
+        var subscriptionId = GetInvoiceSubscriptionId(dataObject);
         if (string.IsNullOrWhiteSpace(subscriptionId))
         {
             return null;
         }
-
+    
         return new StripeSubscriptionSyncRequest
         {
             Email = GetString(dataObject, "customer_email"),
@@ -520,17 +520,70 @@ public sealed class StripeWebhookController : ControllerBase
         return GetString(price, "id");
     }
 
+    private static string? GetInvoiceSubscriptionId(JsonElement invoiceObject)
+    {
+        var subscriptionId = GetString(invoiceObject, "subscription");
+        if (!string.IsNullOrWhiteSpace(subscriptionId))
+        {
+            return subscriptionId;
+        }
+    
+        if (invoiceObject.TryGetProperty("parent", out var parent) &&
+            parent.ValueKind == JsonValueKind.Object &&
+            parent.TryGetProperty("subscription_details", out var subscriptionDetails) &&
+            subscriptionDetails.ValueKind == JsonValueKind.Object)
+        {
+            subscriptionId = GetString(subscriptionDetails, "subscription");
+            if (!string.IsNullOrWhiteSpace(subscriptionId))
+            {
+                return subscriptionId;
+            }
+        }
+    
+        var firstLine = GetFirstInvoiceLine(invoiceObject);
+        if (firstLine is not null &&
+            firstLine.Value.TryGetProperty("parent", out var lineParent) &&
+            lineParent.ValueKind == JsonValueKind.Object &&
+            lineParent.TryGetProperty("subscription_item_details", out var subscriptionItemDetails) &&
+            subscriptionItemDetails.ValueKind == JsonValueKind.Object)
+        {
+            subscriptionId = GetString(subscriptionItemDetails, "subscription");
+            if (!string.IsNullOrWhiteSpace(subscriptionId))
+            {
+                return subscriptionId;
+            }
+        }
+    
+        return null;
+    }
+
     private static string? GetInvoicePriceId(JsonElement invoiceObject)
     {
         var firstLine = GetFirstInvoiceLine(invoiceObject);
-        if (firstLine is null ||
-            !firstLine.Value.TryGetProperty("price", out var price) ||
-            price.ValueKind != JsonValueKind.Object)
+        if (firstLine is null)
         {
             return null;
         }
-
-        return GetString(price, "id");
+    
+        if (firstLine.Value.TryGetProperty("price", out var price) &&
+            price.ValueKind == JsonValueKind.Object)
+        {
+            var priceId = GetString(price, "id");
+            if (!string.IsNullOrWhiteSpace(priceId))
+            {
+                return priceId;
+            }
+        }
+    
+        if (firstLine.Value.TryGetProperty("pricing", out var pricing) &&
+            pricing.ValueKind == JsonValueKind.Object &&
+            pricing.TryGetProperty("price_details", out var priceDetails) &&
+            priceDetails.ValueKind == JsonValueKind.Object)
+        {
+            return GetString(priceDetails, "price");
+        }
+    
+        return null;
     }
 
     private static DateTimeOffset? GetInvoiceLinePeriodTimestamp(JsonElement invoiceObject, string periodPropertyName)
