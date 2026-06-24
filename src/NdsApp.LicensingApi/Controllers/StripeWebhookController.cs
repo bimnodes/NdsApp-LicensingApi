@@ -299,7 +299,7 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return null;
         }
-
+    
         return new StripeSubscriptionSyncRequest
         {
             Email = GetString(dataObject, "customer_email"),
@@ -307,8 +307,8 @@ public sealed class StripeWebhookController : ControllerBase
             StripeSubscriptionId = subscriptionId,
             StripePriceId = ResolvePriceId(GetSubscriptionPriceId(dataObject)),
             StripeStatus = statusOverride ?? GetString(dataObject, "status"),
-            CurrentPeriodStart = GetUnixTimestamp(dataObject, "current_period_start"),
-            CurrentPeriodEnd = GetUnixTimestamp(dataObject, "current_period_end"),
+            CurrentPeriodStart = GetSubscriptionPeriodTimestamp(dataObject, "current_period_start"),
+            CurrentPeriodEnd = GetSubscriptionPeriodTimestamp(dataObject, "current_period_end"),
             RawData = dataObject.Clone()
         };
     }
@@ -498,7 +498,24 @@ public sealed class StripeWebhookController : ControllerBase
         return value.TryGetInt64(out var seconds) ? DateTimeOffset.FromUnixTimeSeconds(seconds) : null;
     }
 
-    private static string? GetSubscriptionPriceId(JsonElement subscriptionObject)
+    private static DateTimeOffset? GetSubscriptionPeriodTimestamp(JsonElement subscriptionObject, string periodPropertyName)
+    {
+        var rootPeriod = GetUnixTimestamp(subscriptionObject, periodPropertyName);
+        if (rootPeriod is not null)
+        {
+            return rootPeriod;
+        }
+    
+        var firstItem = GetFirstSubscriptionItem(subscriptionObject);
+        if (firstItem is null)
+        {
+            return null;
+        }
+    
+        return GetUnixTimestamp(firstItem.Value, periodPropertyName);
+    }
+
+    private static JsonElement? GetFirstSubscriptionItem(JsonElement subscriptionObject)
     {
         if (!subscriptionObject.TryGetProperty("items", out var items) ||
             items.ValueKind != JsonValueKind.Object ||
@@ -508,15 +525,21 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return null;
         }
-
+    
         var firstItem = data[0];
-        if (firstItem.ValueKind != JsonValueKind.Object ||
-            !firstItem.TryGetProperty("price", out var price) ||
+        return firstItem.ValueKind == JsonValueKind.Object ? firstItem : null;
+    }
+
+    private static string? GetSubscriptionPriceId(JsonElement subscriptionObject)
+    {
+        var firstItem = GetFirstSubscriptionItem(subscriptionObject);
+        if (firstItem is null ||
+            !firstItem.Value.TryGetProperty("price", out var price) ||
             price.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
-
+    
         return GetString(price, "id");
     }
 
