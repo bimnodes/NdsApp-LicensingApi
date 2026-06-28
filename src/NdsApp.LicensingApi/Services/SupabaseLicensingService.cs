@@ -82,10 +82,27 @@ public sealed class SupabaseLicensingService : ILicensingService
             ["p_machine_hash"] = request.MachineHash,
             ["p_plugin_id"] = request.PluginId,
             ["p_execution_id"] = request.ExecutionId,
-            ["p_execution_status"] = request.ExecutionStatus
+            ["p_execution_status"] = request.ExecutionStatus,
+            ["p_ndsapp_version"] = TrimToNull(request.NdsAppVersion),
+            ["p_revit_version"] = TrimToNull(request.RevitVersion),
+            ["p_language"] = TrimToNull(request.Language),
+            ["p_duration_ms"] = request.DurationMs,
+            ["p_selected_elements_count"] = request.SelectedElementsCount,
+            ["p_processed_elements_count"] = request.ProcessedElementsCount,
+            ["p_created_elements_count"] = request.CreatedElementsCount,
+            ["p_modified_elements_count"] = request.ModifiedElementsCount,
+            ["p_deleted_elements_count"] = request.DeletedElementsCount,
+            ["p_input_count"] = request.InputCount,
+            ["p_output_count"] = request.OutputCount,
+            ["p_complexity_bucket"] = TrimToNull(request.ComplexityBucket),
+            ["p_model_size_bucket"] = TrimToNull(request.ModelSizeBucket),
+            ["p_error_code"] = TrimToNull(request.ErrorCode),
+            ["p_error_hash"] = TrimToNull(request.ErrorHash),
+            ["p_metrics"] = JsonObjectOrEmpty(request.Metrics),
+            ["p_metadata"] = JsonObjectOrEmpty(request.Metadata)
         };
 
-        return PostRpcAsync("nds_report_plugin_usage", payload, cancellationToken);
+        return PostRpcAsync("nds_report_plugin_usage_v2", payload, cancellationToken);
     }
 
     public Task<JsonElement> SyncStripeSubscriptionAsync(StripeSubscriptionSyncRequest request, CancellationToken cancellationToken)
@@ -186,6 +203,23 @@ public sealed class SupabaseLicensingService : ILicensingService
         };
 
         return PostRpcAsync("nds_sync_payg_invoice_status", payload, cancellationToken);
+    }
+
+    private static string? TrimToNull(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim();
+    }
+
+    private static object JsonObjectOrEmpty(JsonElement? value)
+    {
+        if (value is { } element && element.ValueKind == JsonValueKind.Object)
+        {
+            return element;
+        }
+
+        return new Dictionary<string, object?>();
     }
 
     private async Task<JsonElement> PostRpcAsync(string functionName, object payload, CancellationToken cancellationToken)
