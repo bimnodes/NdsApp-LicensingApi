@@ -14,6 +14,7 @@ namespace NdsApp.LicensingApi.Controllers;
 public sealed class BillingController : ControllerBase
 {
     private readonly ICustomerPortalContextService _customerPortalContextService;
+    private readonly ILicensingService _licensingService;
     private readonly StripeOptions _stripeOptions;
     private readonly ILogger<BillingController> _logger;
 
@@ -22,10 +23,12 @@ public sealed class BillingController : ControllerBase
 
     public BillingController(
         ICustomerPortalContextService customerPortalContextService,
+        ILicensingService licensingService,
         IOptions<StripeOptions> stripeOptions,
         ILogger<BillingController> logger)
     {
         _customerPortalContextService = customerPortalContextService;
+        _licensingService = licensingService;
         _stripeOptions = stripeOptions.Value;
         _logger = logger;
     }
@@ -92,32 +95,32 @@ public sealed class BillingController : ControllerBase
 
         try
         {
-            context = await _customerPortalContextService.GetContextAsync(
-                new CreateCustomerPortalSessionRequest(request.ActivationId, request.MachineHash),
+            context = await _licensingService.CheckAsync(
+                new CheckActivationRequest(request.ActivationId, request.MachineHash),
                 cancellationToken);
         }
         catch (SupabaseRpcException ex)
         {
             _logger.LogError(
                 ex,
-                "Failed to load checkout context. Status code: {StatusCode}. Response: {ResponseBody}",
+                "Failed to load checkout activation context. Status code: {StatusCode}. Response: {ResponseBody}",
                 ex.StatusCode,
                 ex.ResponseBody);
 
             return StatusCode(StatusCodes.Status502BadGateway, new
             {
                 success = false,
-                code = "checkout_context_failed",
-                message = "Checkout context could not be loaded."
+                code = "checkout_activation_context_failed",
+                message = "Checkout activation context could not be loaded."
             });
         }
 
-        if (GetBoolean(context, "success") != true || GetBoolean(context, "allowed") != true)
+        if (GetBoolean(context, "success") != true)
         {
             return BadRequest(new
             {
                 success = false,
-                code = GetString(context, "code") ?? "checkout_not_allowed",
+                code = GetString(context, "code") ?? "checkout_activation_not_allowed",
                 context = context
             });
         }
