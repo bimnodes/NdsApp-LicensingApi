@@ -284,14 +284,30 @@ public sealed class StripeWebhookController : ControllerBase
             return null;
         }
 
+        var planCode = GetNestedString(dataObject, "metadata", "ndsapp_plan_code");
+        var priceId = ResolveCheckoutPriceIdFromPlanCode(planCode);
+
         _logger.LogInformation(
-            "Checkout session {CheckoutSessionId} completed for subscription {SubscriptionId}. Subscription events will perform license sync.",
+            "Checkout session {CheckoutSessionId} completed for subscription {SubscriptionId}. Performing direct license sync from Checkout metadata.",
             GetString(dataObject, "id"),
             subscriptionId);
 
-        return null;
+        return new StripeSubscriptionSyncRequest
+        {
+            Email =
+                GetNestedString(dataObject, "customer_details", "email") ??
+                GetString(dataObject, "customer_email") ??
+                GetNestedString(dataObject, "metadata", "ndsapp_email"),
+            StripeCustomerId = GetString(dataObject, "customer"),
+            StripeSubscriptionId = subscriptionId,
+            StripePriceId = priceId,
+            StripeStatus = "active",
+            CurrentPeriodStart = null,
+            CurrentPeriodEnd = null,
+            CheckoutSessionId = GetString(dataObject, "id"),
+            RawData = dataObject.Clone()
+        };
     }
-
     private StripeSubscriptionSyncRequest? BuildSubscriptionRequest(JsonElement dataObject, string? statusOverride = null)
     {
         var subscriptionId = GetString(dataObject, "id");
@@ -379,6 +395,25 @@ public sealed class StripeWebhookController : ControllerBase
         }
     }
 
+    private string? ResolveCheckoutPriceIdFromPlanCode(string? planCode)
+    {
+        if (string.Equals(planCode, "PRO_MONTHLY_10", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(planCode, "monthly", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(planCode, "pro_monthly", StringComparison.OrdinalIgnoreCase))
+        {
+            return _stripeOptions.NdsAppMonthlyPriceId;
+        }
+
+        if (string.Equals(planCode, "NDSAPP_ANNUAL_100", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(planCode, "annual", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(planCode, "yearly", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(planCode, "pro_yearly", StringComparison.OrdinalIgnoreCase))
+        {
+            return _stripeOptions.NdsAppAnnualPriceId;
+        }
+
+        return null;
+    }
     private string? ResolvePriceId(string? stripeEventPriceId)
     {
         if (!string.IsNullOrWhiteSpace(stripeEventPriceId))
