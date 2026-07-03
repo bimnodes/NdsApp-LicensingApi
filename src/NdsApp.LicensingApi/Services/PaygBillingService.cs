@@ -92,6 +92,22 @@ public sealed class PaygBillingService : IPaygBillingService
                     stripeResult.InvoiceItemId,
                     cancellationToken);
 
+
+                if (string.Equals(stripeResult.InvoiceStatus, "paid", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _licensingService.SyncPaygInvoiceStatusAsync(
+                        stripeResult.InvoiceId,
+                        stripeResult.InvoiceStatus,
+                        "invoice.paid",
+                        ToJsonElement(new
+                        {
+                            source = "payg_billing_service",
+                            billing_run_id = billingRunId,
+                            payg_invoice_id = paygInvoiceId
+                        }),
+                        cancellationToken);
+                }
+
                 processed++;
                 totalAmountCents += amountCents;
             }
@@ -135,11 +151,13 @@ public sealed class PaygBillingService : IPaygBillingService
         DateOnly periodEnd,
         CancellationToken cancellationToken)
     {
-        var requestOptions = new RequestOptions
+        const int StripeMinimumChargeAmountCents = 50;
+
+        if (amountCents < StripeMinimumChargeAmountCents)
         {
-            ApiKey = _stripeOptions.SecretKey,
-            IdempotencyKey = $"payg-invoice-{paygInvoiceId:N}"
-        };
+            throw new InvalidOperationException(
+                $"PayG invoice amount {amountCents} cents is below the Stripe minimum charge amount of {StripeMinimumChargeAmountCents} cents for EUR.");
+        }
 
         var periodLabel = $"{periodStart:yyyy-MM-dd} to {periodEnd.AddDays(-1):yyyy-MM-dd}";
         var description = $"NdsApp PayG usage {periodLabel} ({usageEventCount} executions)";
@@ -153,40 +171,86 @@ public sealed class PaygBillingService : IPaygBillingService
             ["ndsapp_period_end"] = periodEnd.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
         };
 
-        var invoiceItemService = new InvoiceItemService();
-        var invoiceItem = await invoiceItemService.CreateAsync(
-            new InvoiceItemCreateOptions
-            {
-                Customer = stripeCustomerId,
-                Amount = amountCents,
-                Currency = "eur",
-                Description = description,
-                Metadata = metadata
-            },
-            requestOptions,
-            cancellationToken);
+        var invoiceService = new InvoiceService();
 
-        var invoiceRequestOptions = new RequestOptions
+        var invoiceCreateRequestOptions = new RequestOptions
         {
             ApiKey = _stripeOptions.SecretKey,
             IdempotencyKey = $"payg-invoice-create-{paygInvoiceId:N}"
         };
 
-        var invoiceService = new InvoiceService();
         var invoice = await invoiceService.CreateAsync(
             new InvoiceCreateOptions
             {
                 Customer = stripeCustomerId,
                 CollectionMethod = "charge_automatically",
-                AutoAdvance = true,
-                PendingInvoiceItemsBehavior = "include",
+                AutoAdvance = false,
+                PendingInvoiceItemsBehavior = "exclude",
                 Description = description,
                 Metadata = metadata
             },
-            invoiceRequestOptions,
+            invoiceCreateRequestOptions,
             cancellationToken);
 
-        return new StripeInvoiceCreationResult(invoice.Id, invoiceItem.Id);
+        var invoiceItemRequestOptions = new RequestOptions
+        {
+            ApiKey = _stripeOptions.SecretKey,
+            IdempotencyKey = $"payg-invoice-item-{paygInvoiceId:N}"
+        };
+
+        var invoiceItemService = new InvoiceItemService();
+        var invoiceItem = await invoiceItemService.CreateAsync(
+            new InvoiceItemCreateOptions
+            {
+                Customer = stripeCustomerId,
+                Invoice = invoice.Id,
+                Amount = amountCents,
+                Currency = "eur",
+                Description = description,
+                Metadata = metadata
+            },
+            invoiceItemRequestOptions,
+            cancellationToken);
+
+        var finalizeRequestOptions = new RequestOptions
+        {
+            ApiKey = _stripeOptions.SecretKey,
+            IdempotencyKey = $"payg-invoice-finalize-{paygInvoiceId:N}"
+        };
+
+        var finalizedInvoice = await invoiceService.FinalizeInvoiceAsync(
+            invoice.Id,
+            new InvoiceFinalizeOptions
+            {
+                AutoAdvance = false
+            },
+            finalizeRequestOptions,
+            cancellationToken);
+
+        var currentInvoice = finalizedInvoice;
+
+        if (!string.Equals(currentInvoice.Status, "paid", StringComparison.OrdinalIgnoreCase))
+        {
+            var payRequestOptions = new RequestOptions
+            {
+                ApiKey = _stripeOptions.SecretKey,
+                IdempotencyKey = $"payg-invoice-pay-{paygInvoiceId:N}"
+            };
+
+            currentInvoice = await invoiceService.PayAsync(
+                finalizedInvoice.Id,
+                new InvoicePayOptions(),
+                payRequestOptions,
+                cancellationToken);
+        }
+
+        if (!string.Equals(currentInvoice.Status, "paid", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"PayG Stripe invoice {currentInvoice.Id} was not paid. Current status: {currentInvoice.Status}.");
+        }
+
+        return new StripeInvoiceCreationResult(currentInvoice.Id, invoiceItem.Id, currentInvoice.Status);
     }
 
     private static JsonElement ToJsonElement<T>(T value)
@@ -247,5 +311,6 @@ public sealed class PaygBillingService : IPaygBillingService
         return Guid.TryParse(raw, out var result) ? result : Guid.Empty;
     }
 
-    private sealed record StripeInvoiceCreationResult(string InvoiceId, string InvoiceItemId);
+    private sealed record StripeInvoiceCreationResult(string InvoiceId, string InvoiceItemId, string? InvoiceStatus);
 }
+
