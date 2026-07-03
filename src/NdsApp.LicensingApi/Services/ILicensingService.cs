@@ -15,6 +15,16 @@ public interface ILicensingService
 
     Task<JsonElement> SyncStripeSubscriptionAsync(StripeSubscriptionSyncRequest request, CancellationToken cancellationToken);
 
+
+    Task<JsonElement> ActivatePaygPostpaidFromSetupAsync(
+        Guid activationId,
+        string machineHash,
+        string stripeCustomerId,
+        string stripeCheckoutSessionId,
+        string? stripeSetupIntentId,
+        string? customerEmail,
+        CancellationToken cancellationToken);
+
     Task<JsonElement> PreparePaygBillingRunAsync(DateOnly periodStart, DateOnly periodEnd, CancellationToken cancellationToken);
 
     Task<JsonElement> GetPaygBillingInvoicesAsync(Guid billingRunId, CancellationToken cancellationToken);

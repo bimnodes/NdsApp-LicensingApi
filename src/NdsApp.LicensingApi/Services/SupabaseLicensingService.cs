@@ -133,6 +133,27 @@ public sealed class SupabaseLicensingService : ILicensingService
 
         return PostRpcAsync("nds_sync_stripe_subscription", payload, cancellationToken);
     }
+    public Task<JsonElement> ActivatePaygPostpaidFromSetupAsync(
+        Guid activationId,
+        string machineHash,
+        string stripeCustomerId,
+        string stripeCheckoutSessionId,
+        string? stripeSetupIntentId,
+        string? customerEmail,
+        CancellationToken cancellationToken)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["p_activation_id"] = activationId,
+            ["p_machine_hash"] = machineHash,
+            ["p_stripe_customer_id"] = stripeCustomerId,
+            ["p_stripe_checkout_session_id"] = stripeCheckoutSessionId,
+            ["p_stripe_setup_intent_id"] = TrimToNull(stripeSetupIntentId),
+            ["p_customer_email"] = TrimToNull(customerEmail)
+        };
+
+        return PostRpcAsync("nds_activate_payg_postpaid_from_setup", payload, cancellationToken);
+    }
 
     public Task<JsonElement> PreparePaygBillingRunAsync(DateOnly periodStart, DateOnly periodEnd, CancellationToken cancellationToken)
     {
