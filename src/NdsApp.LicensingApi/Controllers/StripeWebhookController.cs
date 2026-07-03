@@ -100,6 +100,12 @@ public sealed class StripeWebhookController : ControllerBase
             return await HandlePaygInvoiceEventAsync(stripeEvent.Type, dataObject, cancellationToken);
         }
 
+
+        if (IsPaygSetupCheckoutCompletedEvent(stripeEvent.Type, dataObject))
+        {
+            return await HandlePaygSetupCheckoutCompletedEventAsync(stripeEvent.Type, dataObject, cancellationToken);
+        }
+
         var syncRequest = BuildSyncRequest(stripeEvent.Type, dataObject);
 
         if (syncRequest is null)
@@ -230,6 +236,87 @@ public sealed class StripeWebhookController : ControllerBase
             });
         }
     }
+    private async Task<IActionResult> HandlePaygSetupCheckoutCompletedEventAsync(
+        string eventType,
+        JsonElement dataObject,
+        CancellationToken cancellationToken)
+    {
+        var activationIdText = GetNestedString(dataObject, "metadata", "ndsapp_activation_id");
+        var machineHash = GetNestedString(dataObject, "metadata", "ndsapp_machine_hash");
+        var stripeCustomerId = GetStringOrNestedId(dataObject, "customer");
+        var checkoutSessionId = GetString(dataObject, "id");
+        var setupIntentId = GetStringOrNestedId(dataObject, "setup_intent");
+        var customerEmail =
+            GetNestedString(dataObject, "customer_details", "email") ??
+            GetString(dataObject, "customer_email") ??
+            GetNestedString(dataObject, "metadata", "ndsapp_email");
+
+        if (!Guid.TryParse(activationIdText, out var activationId) ||
+            string.IsNullOrWhiteSpace(machineHash) ||
+            string.IsNullOrWhiteSpace(stripeCustomerId) ||
+            string.IsNullOrWhiteSpace(checkoutSessionId))
+        {
+            _logger.LogWarning(
+                "PayG setup Checkout session {CheckoutSessionId} completed but required metadata/customer data was missing.",
+                checkoutSessionId);
+
+            return Ok(new
+            {
+                success = true,
+                received = true,
+                event_type = eventType,
+                handled = false,
+                code = "payg_setup_metadata_missing"
+            });
+        }
+
+        try
+        {
+            var activationResult = await _licensingService.ActivatePaygPostpaidFromSetupAsync(
+                activationId,
+                machineHash,
+                stripeCustomerId,
+                checkoutSessionId,
+                setupIntentId,
+                customerEmail,
+                cancellationToken);
+
+            var resultCode = GetString(activationResult, "code");
+            var resultSuccess = GetBoolean(activationResult, "success");
+
+            _logger.LogInformation(
+                "Received Stripe PayG setup event {EventType}. Checkout session {CheckoutSessionId}. Result: {ResultSuccess} {ResultCode}.",
+                eventType,
+                checkoutSessionId,
+                resultSuccess,
+                resultCode);
+
+            return Ok(new
+            {
+                success = true,
+                received = true,
+                event_type = eventType,
+                handled = true,
+                payg_setup_result = RedactSensitiveFields(activationResult)
+            });
+        }
+        catch (SupabaseRpcException ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to activate PayG setup from Stripe event {EventType}. Status code: {StatusCode}. Response: {ResponseBody}",
+                eventType,
+                ex.StatusCode,
+                ex.ResponseBody);
+
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                success = false,
+                code = "supabase_payg_setup_activation_failed",
+                message = "Stripe PayG setup event was received, but Supabase activation failed."
+            });
+        }
+    }
 
     private async Task SendEmailForNewLicenseAsync(
         StripeSubscriptionSyncRequest syncRequest,
@@ -315,7 +402,7 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return null;
         }
-    
+
         return new StripeSubscriptionSyncRequest
         {
             Email = GetString(dataObject, "customer_email"),
@@ -336,7 +423,7 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return null;
         }
-    
+
         return new StripeSubscriptionSyncRequest
         {
             Email = GetString(dataObject, "customer_email"),
@@ -425,6 +512,24 @@ public sealed class StripeWebhookController : ControllerBase
             ? null
             : _stripeOptions.NdsAppAnnualPriceId;
     }
+    private static bool IsPaygSetupCheckoutCompletedEvent(string eventType, JsonElement dataObject)
+    {
+        if (!string.Equals(eventType, "checkout.session.completed", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.Equals(GetString(dataObject, "mode"), "setup", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var planCode = GetNestedString(dataObject, "metadata", "ndsapp_plan_code");
+        var billingType = GetNestedString(dataObject, "metadata", "ndsapp_billing_type");
+
+        return string.Equals(planCode, "PAYG_POSTPAID", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(billingType, "payg_postpaid", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool IsPaygInvoiceEvent(string eventType, JsonElement dataObject)
     {
@@ -463,6 +568,25 @@ public sealed class StripeWebhookController : ControllerBase
         }
 
         return value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    }
+    private static string? GetStringOrNestedId(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            return value.GetString();
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            return GetString(value, "id");
+        }
+
+        return null;
     }
 
     private static bool? GetBoolean(JsonElement element, string propertyName)
@@ -540,13 +664,13 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return rootPeriod;
         }
-    
+
         var firstItem = GetFirstSubscriptionItem(subscriptionObject);
         if (firstItem is null)
         {
             return null;
         }
-    
+
         return GetUnixTimestamp(firstItem.Value, periodPropertyName);
     }
 
@@ -560,7 +684,7 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return null;
         }
-    
+
         var firstItem = data[0];
         return firstItem.ValueKind == JsonValueKind.Object ? firstItem : null;
     }
@@ -574,7 +698,7 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return null;
         }
-    
+
         return GetString(price, "id");
     }
 
@@ -585,7 +709,7 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return subscriptionId;
         }
-    
+
         if (invoiceObject.TryGetProperty("parent", out var parent) &&
             parent.ValueKind == JsonValueKind.Object &&
             parent.TryGetProperty("subscription_details", out var subscriptionDetails) &&
@@ -597,7 +721,7 @@ public sealed class StripeWebhookController : ControllerBase
                 return subscriptionId;
             }
         }
-    
+
         var firstLine = GetFirstInvoiceLine(invoiceObject);
         if (firstLine is not null &&
             firstLine.Value.TryGetProperty("parent", out var lineParent) &&
@@ -611,7 +735,7 @@ public sealed class StripeWebhookController : ControllerBase
                 return subscriptionId;
             }
         }
-    
+
         return null;
     }
 
@@ -622,7 +746,7 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return null;
         }
-    
+
         if (firstLine.Value.TryGetProperty("price", out var price) &&
             price.ValueKind == JsonValueKind.Object)
         {
@@ -632,7 +756,7 @@ public sealed class StripeWebhookController : ControllerBase
                 return priceId;
             }
         }
-    
+
         if (firstLine.Value.TryGetProperty("pricing", out var pricing) &&
             pricing.ValueKind == JsonValueKind.Object &&
             pricing.TryGetProperty("price_details", out var priceDetails) &&
@@ -640,7 +764,7 @@ public sealed class StripeWebhookController : ControllerBase
         {
             return GetString(priceDetails, "price");
         }
-    
+
         return null;
     }
 

@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -22,6 +22,8 @@ public sealed class BillingController : ControllerBase
     private const string MonthlyPlanCode = "PRO_MONTHLY_10";
     private const string AnnualPlanCode = "NDSAPP_ANNUAL_100";
 
+
+    private const string PaygPlanCode = "PAYG_POSTPAID";
     public BillingController(
         ICustomerPortalContextService customerPortalContextService,
         IBillingStatusContextService billingStatusContextService,
@@ -181,6 +183,144 @@ public sealed class BillingController : ControllerBase
                 success = false,
                 code = "stripe_checkout_session_failed",
                 message = "Stripe Checkout session could not be created."
+            });
+        }
+    }
+
+    [HttpPost("payg-setup")]
+    public async Task<IActionResult> CreatePaygSetupSession(
+        [FromBody] CreatePaygSetupSessionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.ActivationId == Guid.Empty || string.IsNullOrWhiteSpace(request.MachineHash))
+        {
+            return BadRequest(new
+            {
+                success = false,
+                code = "invalid_payg_setup_request",
+                message = "activation_id and machine_hash are required."
+            });
+        }
+
+        if (string.IsNullOrWhiteSpace(_stripeOptions.SecretKey))
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                code = "stripe_secret_key_missing",
+                message = "Stripe secret key is not configured."
+            });
+        }
+
+        if (string.IsNullOrWhiteSpace(_stripeOptions.CheckoutSuccessUrl) ||
+            string.IsNullOrWhiteSpace(_stripeOptions.CheckoutCancelUrl))
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                code = "checkout_urls_missing",
+                message = "Stripe Checkout success and cancel URLs are not configured."
+            });
+        }
+
+        JsonElement context;
+
+        try
+        {
+            context = await _licensingService.CheckAsync(
+                new CheckActivationRequest(request.ActivationId, request.MachineHash),
+                cancellationToken);
+        }
+        catch (SupabaseRpcException ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to load PayG setup activation context. Status code: {StatusCode}. Response: {ResponseBody}",
+                ex.StatusCode,
+                ex.ResponseBody);
+
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                success = false,
+                code = "payg_setup_activation_context_failed",
+                message = "PayG setup activation context could not be loaded."
+            });
+        }
+
+        if (GetBoolean(context, "success") != true)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                code = GetString(context, "code") ?? "payg_setup_activation_not_allowed",
+                context = context
+            });
+        }
+
+        var currentPlanCode = GetString(context, "plan_code");
+        if (string.Equals(currentPlanCode, MonthlyPlanCode, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(currentPlanCode, AnnualPlanCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new
+            {
+                success = false,
+                code = "active_pro_plan_cannot_enable_payg",
+                message = "This license already has an active Pro plan. Manage or cancel the Pro plan before switching to PayG.",
+                current_plan_code = currentPlanCode
+            });
+        }
+
+        var stripeCustomerId = GetString(context, "stripe_customer_id");
+        var metadata = BuildPaygSetupMetadata(request, context);
+
+        try
+        {
+            var sessionService = new Stripe.Checkout.SessionService();
+            var sessionOptions = new Stripe.Checkout.SessionCreateOptions
+            {
+                Mode = "setup",
+                ClientReferenceId = request.ActivationId.ToString("D"),
+                Customer = string.IsNullOrWhiteSpace(stripeCustomerId) ? null : stripeCustomerId,
+                CustomerEmail = string.IsNullOrWhiteSpace(stripeCustomerId) ? GetString(context, "email") : null,
+                CustomerCreation = string.IsNullOrWhiteSpace(stripeCustomerId) ? "always" : null,
+                SuccessUrl = _stripeOptions.CheckoutSuccessUrl,
+                CancelUrl = _stripeOptions.CheckoutCancelUrl,
+                PaymentMethodTypes = new List<string>
+                {
+                    "card"
+                },
+                Metadata = metadata,
+                SetupIntentData = new Stripe.Checkout.SessionSetupIntentDataOptions
+                {
+                    Metadata = metadata
+                }
+            };
+
+            var session = await sessionService.CreateAsync(
+                sessionOptions,
+                new RequestOptions { ApiKey = _stripeOptions.SecretKey },
+                cancellationToken);
+
+            return Ok(new
+            {
+                success = true,
+                code = "payg_setup_session_created",
+                url = session.Url,
+                checkout_session_id = session.Id,
+                plan_code = PaygPlanCode,
+                billing_mode = "payg_postpaid",
+                monthly_limit_cents = 1500
+            });
+        }
+        catch (StripeException ex)
+        {
+            _logger.LogError(ex, "Failed to create Stripe PayG setup session for activation {ActivationId}.", request.ActivationId);
+
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                success = false,
+                code = "stripe_payg_setup_session_failed",
+                message = "Stripe PayG setup session could not be created."
             });
         }
     }
@@ -443,6 +583,25 @@ public sealed class BillingController : ControllerBase
 
         return metadata;
     }
+    private static Dictionary<string, string> BuildPaygSetupMetadata(
+        CreatePaygSetupSessionRequest request,
+        JsonElement context)
+    {
+        var metadata = new Dictionary<string, string>
+        {
+            ["ndsapp_activation_id"] = request.ActivationId.ToString("D"),
+            ["ndsapp_machine_hash"] = request.MachineHash,
+            ["ndsapp_plan_code"] = PaygPlanCode,
+            ["ndsapp_billing_type"] = "payg_postpaid",
+            ["ndsapp_checkout_source"] = "revit_payg_setup"
+        };
+
+        AddMetadataIfPresent(metadata, "ndsapp_email", GetString(context, "email"));
+        AddMetadataIfPresent(metadata, "ndsapp_license_id", GetString(context, "license_id"));
+        AddMetadataIfPresent(metadata, "ndsapp_current_plan_code", GetString(context, "plan_code"));
+
+        return metadata;
+    }
 
     private static void AddMetadataIfPresent(Dictionary<string, string> metadata, string key, string? value)
     {
@@ -479,5 +638,3 @@ public sealed class BillingController : ControllerBase
             : null;
     }
 }
-
-
