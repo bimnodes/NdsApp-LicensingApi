@@ -1,4 +1,4 @@
-using NdsApp.LicensingApi.Options;
+﻿using NdsApp.LicensingApi.Options;
 using NdsApp.LicensingApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +17,7 @@ builder.Services.Configure<ResendOptions>(
 
 builder.Services.AddHttpClient<ILicensingService, SupabaseLicensingService>();
 builder.Services.AddHttpClient<ICustomerPortalContextService, SupabaseCustomerPortalContextService>();
+builder.Services.AddHttpClient<IBillingStatusContextService, SupabaseBillingStatusContextService>();
 builder.Services.AddHttpClient<IEmailService, ResendEmailService>();
 builder.Services.AddScoped<IPaygBillingService, PaygBillingService>();
 
@@ -37,3 +38,4 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
