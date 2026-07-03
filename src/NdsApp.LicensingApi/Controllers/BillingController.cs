@@ -227,23 +227,23 @@ public sealed class BillingController : ControllerBase
 
         try
         {
-            context = await _licensingService.CheckAsync(
-                new CheckActivationRequest(request.ActivationId, request.MachineHash),
+            context = await _billingStatusContextService.GetContextAsync(
+                new GetBillingStatusRequest(request.ActivationId, request.MachineHash),
                 cancellationToken);
         }
         catch (SupabaseRpcException ex)
         {
             _logger.LogError(
                 ex,
-                "Failed to load PayG setup activation context. Status code: {StatusCode}. Response: {ResponseBody}",
+                "Failed to load PayG setup billing context. Status code: {StatusCode}. Response: {ResponseBody}",
                 ex.StatusCode,
                 ex.ResponseBody);
 
             return StatusCode(StatusCodes.Status502BadGateway, new
             {
                 success = false,
-                code = "payg_setup_activation_context_failed",
-                message = "PayG setup activation context could not be loaded."
+                code = "payg_setup_billing_context_failed",
+                message = "PayG setup billing context could not be loaded."
             });
         }
 
@@ -258,7 +258,20 @@ public sealed class BillingController : ControllerBase
         }
 
         var currentPlanCode = GetString(context, "plan_code");
-        if (string.Equals(currentPlanCode, MonthlyPlanCode, StringComparison.OrdinalIgnoreCase) ||
+        var hasActiveSubscription = GetBoolean(context, "has_active_subscription") == true;
+
+        if (string.IsNullOrWhiteSpace(currentPlanCode))
+        {
+            return BadRequest(new
+            {
+                success = false,
+                code = "payg_setup_plan_missing",
+                message = "PayG setup cannot be created because the current license plan could not be determined."
+            });
+        }
+
+        if (hasActiveSubscription ||
+            string.Equals(currentPlanCode, MonthlyPlanCode, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(currentPlanCode, AnnualPlanCode, StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest(new
@@ -266,7 +279,8 @@ public sealed class BillingController : ControllerBase
                 success = false,
                 code = "active_pro_plan_cannot_enable_payg",
                 message = "This license already has an active Pro plan. Manage or cancel the Pro plan before switching to PayG.",
-                current_plan_code = currentPlanCode
+                current_plan_code = currentPlanCode,
+                has_active_subscription = hasActiveSubscription
             });
         }
 
