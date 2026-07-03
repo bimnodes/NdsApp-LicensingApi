@@ -254,7 +254,8 @@ public sealed class StripeWebhookController : ControllerBase
         if (!Guid.TryParse(activationIdText, out var activationId) ||
             string.IsNullOrWhiteSpace(machineHash) ||
             string.IsNullOrWhiteSpace(stripeCustomerId) ||
-            string.IsNullOrWhiteSpace(checkoutSessionId))
+            string.IsNullOrWhiteSpace(checkoutSessionId) ||
+            string.IsNullOrWhiteSpace(setupIntentId))
         {
             _logger.LogWarning(
                 "PayG setup Checkout session {CheckoutSessionId} completed but required metadata/customer data was missing.",
@@ -272,6 +273,15 @@ public sealed class StripeWebhookController : ControllerBase
 
         try
         {
+            var defaultPaymentMethodId = await SetCustomerDefaultPaymentMethodFromSetupIntentAsync(
+                stripeCustomerId,
+                setupIntentId,
+                cancellationToken);
+
+            _logger.LogInformation(
+                "Configured default payment method for PayG customer {StripeCustomerId} from setup intent {SetupIntentId}.",
+                stripeCustomerId,
+                setupIntentId);
             var activationResult = await _licensingService.ActivatePaygPostpaidFromSetupAsync(
                 activationId,
                 machineHash,
@@ -300,6 +310,34 @@ public sealed class StripeWebhookController : ControllerBase
                 payg_setup_result = RedactSensitiveFields(activationResult)
             });
         }
+        catch (StripeException ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to configure default payment method for PayG setup event {EventType}.",
+                eventType);
+
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                success = false,
+                code = "stripe_payg_default_payment_method_failed",
+                message = "Stripe PayG setup event was received, but the default payment method could not be configured."
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(
+                ex,
+                "PayG setup event {EventType} did not contain a usable setup payment method.",
+                eventType);
+
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                success = false,
+                code = "stripe_payg_default_payment_method_missing",
+                message = "Stripe PayG setup event was received, but no usable default payment method was found."
+            });
+        }
         catch (SupabaseRpcException ex)
         {
             _logger.LogError(
@@ -318,6 +356,61 @@ public sealed class StripeWebhookController : ControllerBase
         }
     }
 
+    private async Task<string> SetCustomerDefaultPaymentMethodFromSetupIntentAsync(
+        string stripeCustomerId,
+        string setupIntentId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_stripeOptions.SecretKey))
+        {
+            throw new InvalidOperationException("Stripe secret key is not configured.");
+        }
+
+        var setupIntentService = new SetupIntentService();
+        var setupIntent = await setupIntentService.GetAsync(
+            setupIntentId,
+            new SetupIntentGetOptions
+            {
+                Expand = new List<string>
+                {
+                    "payment_method"
+                }
+            },
+            new RequestOptions { ApiKey = _stripeOptions.SecretKey },
+            cancellationToken);
+
+        if (!string.Equals(setupIntent.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"SetupIntent '{setupIntentId}' is not succeeded.");
+        }
+
+        var paymentMethodId = setupIntent.PaymentMethodId;
+
+        if (string.IsNullOrWhiteSpace(paymentMethodId) && setupIntent.PaymentMethod is not null)
+        {
+            paymentMethodId = setupIntent.PaymentMethod.Id;
+        }
+
+        if (string.IsNullOrWhiteSpace(paymentMethodId))
+        {
+            throw new InvalidOperationException($"SetupIntent '{setupIntentId}' does not contain a payment method.");
+        }
+
+        var customerService = new CustomerService();
+        await customerService.UpdateAsync(
+            stripeCustomerId,
+            new CustomerUpdateOptions
+            {
+                InvoiceSettings = new CustomerInvoiceSettingsOptions
+                {
+                    DefaultPaymentMethod = paymentMethodId
+                }
+            },
+            new RequestOptions { ApiKey = _stripeOptions.SecretKey },
+            cancellationToken);
+
+        return paymentMethodId;
+    }
     private async Task SendEmailForNewLicenseAsync(
         StripeSubscriptionSyncRequest syncRequest,
         JsonElement syncResult,
