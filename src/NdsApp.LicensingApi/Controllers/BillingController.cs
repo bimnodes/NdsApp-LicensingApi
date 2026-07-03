@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -14,6 +14,7 @@ namespace NdsApp.LicensingApi.Controllers;
 public sealed class BillingController : ControllerBase
 {
     private readonly ICustomerPortalContextService _customerPortalContextService;
+    private readonly IBillingStatusContextService _billingStatusContextService;
     private readonly ILicensingService _licensingService;
     private readonly StripeOptions _stripeOptions;
     private readonly ILogger<BillingController> _logger;
@@ -23,11 +24,13 @@ public sealed class BillingController : ControllerBase
 
     public BillingController(
         ICustomerPortalContextService customerPortalContextService,
+        IBillingStatusContextService billingStatusContextService,
         ILicensingService licensingService,
         IOptions<StripeOptions> stripeOptions,
         ILogger<BillingController> logger)
     {
         _customerPortalContextService = customerPortalContextService;
+        _billingStatusContextService = billingStatusContextService;
         _licensingService = licensingService;
         _stripeOptions = stripeOptions.Value;
         _logger = logger;
@@ -295,6 +298,85 @@ public sealed class BillingController : ControllerBase
         }
     }
 
+
+    [HttpPost("status")]
+    public async Task<IActionResult> GetBillingStatus(
+        [FromBody] GetBillingStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.ActivationId == Guid.Empty || string.IsNullOrWhiteSpace(request.MachineHash))
+        {
+            return BadRequest(new
+            {
+                success = false,
+                code = "invalid_billing_status_request",
+                message = "activation_id and machine_hash are required."
+            });
+        }
+
+        JsonElement context;
+
+        try
+        {
+            context = await _billingStatusContextService.GetContextAsync(request, cancellationToken);
+        }
+        catch (SupabaseRpcException ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to load billing status context. Status code: {StatusCode}. Response: {ResponseBody}",
+                ex.StatusCode,
+                ex.ResponseBody);
+
+            return StatusCode(StatusCodes.Status502BadGateway, new
+            {
+                success = false,
+                code = "billing_status_context_failed",
+                message = "Billing status context could not be loaded."
+            });
+        }
+
+        if (GetBoolean(context, "success") != true)
+        {
+            return BadRequest(new
+            {
+                success = false,
+                code = GetString(context, "code") ?? "billing_status_not_loaded",
+                message = GetString(context, "message") ?? "Billing status could not be loaded."
+            });
+        }
+
+        var hasActiveSubscription = GetBoolean(context, "has_active_subscription") == true;
+        var hasStripeCustomer = GetBoolean(context, "has_stripe_customer") == true;
+
+        return Ok(new
+        {
+            success = true,
+            code = GetString(context, "code") ?? "billing_status_loaded",
+            allowed = GetBoolean(context, "allowed") ?? false,
+
+            email = GetString(context, "email"),
+            license_status = GetString(context, "license_status"),
+            activation_status = GetString(context, "activation_status"),
+            valid_from = GetString(context, "valid_from"),
+            valid_until = GetString(context, "valid_until"),
+            max_devices = GetInt32(context, "max_devices"),
+
+            plan_code = GetString(context, "plan_code"),
+            plan_name = GetString(context, "plan_name"),
+            billing_mode = GetString(context, "billing_mode"),
+            billing_interval = GetString(context, "billing_interval"),
+            price_amount_cents = GetInt32(context, "price_amount_cents"),
+            currency = GetString(context, "currency"),
+
+            has_stripe_customer = hasStripeCustomer,
+            has_active_subscription = hasActiveSubscription,
+            can_manage_subscription = hasStripeCustomer && hasActiveSubscription,
+
+            checked_at = GetString(context, "checked_at")
+        });
+    }
+
     private string? ResolveCheckoutPriceId(string planCode)
     {
         if (string.Equals(planCode, MonthlyPlanCode, StringComparison.OrdinalIgnoreCase))
@@ -370,6 +452,18 @@ public sealed class BillingController : ControllerBase
         }
     }
 
+
+    private static int? GetInt32(JsonElement element, string propertyName)
+    {
+        if (element.TryGetProperty(propertyName, out var value) &&
+            value.ValueKind == JsonValueKind.Number &&
+            value.TryGetInt32(out var result))
+        {
+            return result;
+        }
+
+        return null;
+    }
     private static string? GetString(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
@@ -385,3 +479,5 @@ public sealed class BillingController : ControllerBase
             : null;
     }
 }
+
+
