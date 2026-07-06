@@ -1,0 +1,88 @@
+name: PayG Monthly Billing
+
+on:
+  schedule:
+    # Runs at 03:15 UTC on the first day of every month.
+    # The API resolves the billing period automatically to the previous UTC month.
+    - cron: '15 3 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payg-monthly-billing
+  cancel-in-progress: false
+
+jobs:
+  run-payg-billing:
+    name: Run PayG billing
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Call PayG billing endpoint
+        env:
+          PAYG_BILLING_SECRET: ${{ secrets.PAYG_BILLING_SECRET }}
+          PAYG_BILLING_URL: https://ndsapp-licensing-api.onrender.com/api/internal/payg-billing/run
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${PAYG_BILLING_SECRET}" ]; then
+            echo "PAYG_BILLING_SECRET is missing."
+            exit 1
+          fi
+
+          echo "Calling PayG billing endpoint without explicit period dates."
+          echo "The API will bill the previous UTC month."
+
+          response_file="$(mktemp)"
+          http_status="$(
+            curl \
+              --silent \
+              --show-error \
+              --request POST \
+              --header "X-Payg-Billing-Secret: ${PAYG_BILLING_SECRET}" \
+              --output "${response_file}" \
+              --write-out "%{http_code}" \
+              "${PAYG_BILLING_URL}"
+          )"
+
+          echo "HTTP status: ${http_status}"
+
+          python3 - "$response_file" <<'PY'
+          import json
+          import sys
+
+          path = sys.argv[1]
+          raw = open(path, "r", encoding="utf-8").read()
+
+          try:
+              data = json.loads(raw)
+          except Exception:
+              print("Raw response:")
+              print(raw)
+              raise
+
+          safe = {
+              "success": data.get("success"),
+              "code": data.get("code"),
+              "period_start": data.get("period_start"),
+              "period_end": data.get("period_end"),
+              "invoice_count": data.get("invoice_count"),
+              "processed_invoice_count": data.get("processed_invoice_count"),
+              "failed_invoice_count": data.get("failed_invoice_count"),
+              "processed_amount_cents": data.get("processed_amount_cents"),
+          }
+
+          print("PayG billing response summary:")
+          print(json.dumps(safe, indent=2, sort_keys=True))
+          PY
+
+          if [ "${http_status}" -lt 200 ] || [ "${http_status}" -ge 300 ]; then
+            echo "PayG billing endpoint returned a non-success HTTP status."
+            echo "Full response:"
+            cat "${response_file}"
+            exit 1
+          fi
