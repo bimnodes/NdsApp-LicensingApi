@@ -52,7 +52,7 @@ public sealed class LicensingController : ControllerBase
                 if (string.Equals(code, "license_key_request_rate_limited", StringComparison.OrdinalIgnoreCase))
                 {
                     var retryAfterSeconds = GetInt32(result, "retry_after_seconds") ?? 120;
-                    Response.Headers.RetryAfter = retryAfterSeconds.ToString();
+                    Response.Headers["Retry-After"] = retryAfterSeconds.ToString();
 
                     return StatusCode(StatusCodes.Status429TooManyRequests, new
                     {
