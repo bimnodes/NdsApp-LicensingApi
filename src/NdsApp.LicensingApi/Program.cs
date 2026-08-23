@@ -16,6 +16,8 @@ builder.Services.Configure<ResendOptions>(
     builder.Configuration.GetSection(ResendOptions.SectionName));
 
 builder.Services.AddHttpClient<ILicensingService, SupabaseLicensingService>();
+builder.Services.AddHttpClient<ILicenseKeyIssuanceService, SupabaseLicenseKeyIssuanceService>();
+builder.Services.AddHttpClient<ILicenseKeyEmailService, ResendLicenseKeyEmailService>();
 builder.Services.AddHttpClient<ICustomerPortalContextService, SupabaseCustomerPortalContextService>();
 builder.Services.AddHttpClient<IBillingStatusContextService, SupabaseBillingStatusContextService>();
 builder.Services.AddHttpClient<IEmailService, ResendEmailService>();
