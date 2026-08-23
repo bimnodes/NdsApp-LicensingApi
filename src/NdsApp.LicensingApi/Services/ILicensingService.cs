@@ -5,6 +5,8 @@ namespace NdsApp.LicensingApi.Services;
 
 public interface ILicensingService
 {
+    Task<JsonElement> IssueLicenseKeyAsync(string email, CancellationToken cancellationToken);
+
     Task<JsonElement> ActivateAsync(ActivateLicenseRequest request, CancellationToken cancellationToken);
 
     Task<JsonElement> CheckAsync(CheckActivationRequest request, CancellationToken cancellationToken);
@@ -14,7 +16,6 @@ public interface ILicensingService
     Task<JsonElement> ReportPluginUsageAsync(ReportPluginUsageRequest request, CancellationToken cancellationToken);
 
     Task<JsonElement> SyncStripeSubscriptionAsync(StripeSubscriptionSyncRequest request, CancellationToken cancellationToken);
-
 
     Task<JsonElement> ActivatePaygPostpaidFromSetupAsync(
         Guid activationId,
