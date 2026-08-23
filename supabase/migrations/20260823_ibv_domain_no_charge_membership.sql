@@ -324,13 +324,13 @@ $function$;
 -- corporate entitlement has been introduced.
 do $migration$
 begin
-    if to_regprocedure('public.nds_activate_payg_postpaid_from_setup_without_domain_entitlement(uuid,text,text,text,text,text)') is null then
+    if to_regprocedure('public.nds_activate_payg_postpaid_from_setup_base(uuid,text,text,text,text,text)') is null then
         if to_regprocedure('public.nds_activate_payg_postpaid_from_setup(uuid,text,text,text,text,text)') is null then
             raise exception 'nds_activate_payg_postpaid_from_setup(uuid,text,text,text,text,text) is missing.';
         end if;
 
         alter function public.nds_activate_payg_postpaid_from_setup(uuid,text,text,text,text,text)
-            rename to nds_activate_payg_postpaid_from_setup_without_domain_entitlement;
+            rename to nds_activate_payg_postpaid_from_setup_base;
     end if;
 end;
 $migration$;
@@ -375,7 +375,7 @@ begin
         );
     end if;
 
-    return public.nds_activate_payg_postpaid_from_setup_without_domain_entitlement(
+    return public.nds_activate_payg_postpaid_from_setup_base(
         p_activation_id,
         p_machine_hash,
         p_stripe_customer_id,
