@@ -140,8 +140,15 @@ set search_path to 'public'
 as $function$
 declare
     v_now timestamptz := now();
-    v_activation record;
-    v_license record;
+    v_activation_found boolean := false;
+    v_license_found boolean := false;
+    v_activation_id uuid;
+    v_license_id uuid;
+    v_activation_machine_hash text;
+    v_activation_status text;
+    v_license_email text;
+    v_license_status text;
+    v_license_valid_until timestamptz;
     v_entitlement jsonb;
     v_plugin_exists boolean := false;
     v_counter record;
@@ -154,32 +161,42 @@ begin
         a.id,
         a.license_id,
         a.machine_hash,
-        a.status::text as activation_status
-    into v_activation
+        a.status::text
+    into
+        v_activation_id,
+        v_license_id,
+        v_activation_machine_hash,
+        v_activation_status
     from public.nds_license_activations a
     where a.id = p_activation_id;
 
-    if found then
+    v_activation_found := found;
+
+    if v_activation_found then
         select
-            l.id,
             l.email,
-            l.status::text as license_status,
+            l.status::text,
             l.valid_until
-        into v_license
+        into
+            v_license_email,
+            v_license_status,
+            v_license_valid_until
         from public.nds_licenses l
-        where l.id = v_activation.license_id;
+        where l.id = v_license_id;
+
+        v_license_found := found;
     end if;
 
-    if v_license.id is not null then
-        v_entitlement := public.nds_get_membership_domain_entitlement(v_license.email);
+    if v_license_found then
+        v_entitlement := public.nds_get_membership_domain_entitlement(v_license_email);
     end if;
 
     if v_entitlement is not null
        and coalesce((v_entitlement ->> 'grants_all_plugins')::boolean, false) = true
-       and v_activation.activation_status = 'active'
-       and v_activation.machine_hash = p_machine_hash
-       and v_license.license_status = 'active'
-       and (v_license.valid_until is null or v_license.valid_until > v_now) then
+       and v_activation_status = 'active'
+       and v_activation_machine_hash = p_machine_hash
+       and v_license_status = 'active'
+       and (v_license_valid_until is null or v_license_valid_until > v_now) then
 
         select exists (
             select 1
@@ -195,7 +212,7 @@ begin
                 c.free_usage_limit
             into v_counter
             from public.nds_plugin_usage_counters c
-            where c.license_id = v_license.id
+            where c.license_id = v_license_id
               and c.plugin_id = p_plugin_id;
 
             if found then
@@ -209,7 +226,7 @@ begin
             set
                 last_seen_at = v_now,
                 updated_at = v_now
-            where id = v_activation.id;
+            where id = v_activation_id;
 
             v_result := jsonb_build_object(
                 'success', true,
@@ -228,8 +245,8 @@ begin
             );
 
             perform public.nds_record_plugin_access_event(
-                v_activation.id,
-                v_license.id,
+                v_activation_id,
+                v_license_id,
                 p_machine_hash,
                 p_plugin_id,
                 v_result
