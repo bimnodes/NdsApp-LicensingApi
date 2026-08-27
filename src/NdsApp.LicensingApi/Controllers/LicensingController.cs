@@ -85,11 +85,19 @@ public sealed class LicensingController : ControllerBase
                 });
             }
 
+            var resolvedLanguage = ResendLicenseKeyEmailService.NormalizeLanguage(request.Language);
+
+            _logger.LogInformation(
+                "License key email language resolved for {Email}. Requested: {RequestedLanguage}. Resolved: {ResolvedLanguage}.",
+                email,
+                string.IsNullOrWhiteSpace(request.Language) ? "<none>" : request.Language,
+                resolvedLanguage);
+
             await _licenseKeyEmailService.SendAsync(new LicenseKeyEmailRequest
             {
                 ToEmail = email,
                 LicenseKey = licenseKey,
-                Language = request.Language,
+                Language = resolvedLanguage,
                 PlanCode = GetString(result, "plan_code"),
                 PlanName = GetString(result, "plan_name"),
                 MaxDevices = GetInt32(result, "max_devices"),
@@ -101,7 +109,9 @@ public sealed class LicensingController : ControllerBase
                 success = true,
                 code = "license_key_email_sent",
                 message = "License key sent to the requested email address.",
-                plan_code = GetString(result, "plan_code")
+                plan_code = GetString(result, "plan_code"),
+                requested_language = request.Language,
+                language = resolvedLanguage
             });
         }
         catch (SupabaseRpcException ex)
