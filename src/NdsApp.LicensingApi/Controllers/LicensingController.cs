@@ -89,6 +89,7 @@ public sealed class LicensingController : ControllerBase
             {
                 ToEmail = email,
                 LicenseKey = licenseKey,
+                Language = request.Language,
                 PlanCode = GetString(result, "plan_code"),
                 PlanName = GetString(result, "plan_name"),
                 MaxDevices = GetInt32(result, "max_devices"),
