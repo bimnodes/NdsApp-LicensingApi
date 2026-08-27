@@ -66,7 +66,7 @@ Usage reporting remains queued and best-effort so Revit execution is not blocked
 
 From the first outcome-reporting implementation on 2026-06-29, `Result.Cancelled` was historically written as `blocked`. The local free-usage access block introduced later that day wrote `blocked` with `duration_ms = 0`.
 
-Migration `20260827_usage_outcome_semantics.sql` repairs the historical ledger using the verified implementation boundary:
+Migration `20260827100626_usage_outcome_semantics.sql` repairs the historical ledger using the verified implementation boundary:
 
 - positive-duration historical `blocked` events are reclassified as `cancelled`;
 - the two earlier `blocked` rows without a duration, which predate duration reporting, are also reclassified as `cancelled`;
