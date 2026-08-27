@@ -6,6 +6,8 @@ public sealed class LicenseKeyEmailRequest
 
     public string LicenseKey { get; init; } = string.Empty;
 
+    public string? Language { get; init; }
+
     public string? PlanCode { get; init; }
 
     public string? PlanName { get; init; }
