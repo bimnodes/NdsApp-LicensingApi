@@ -66,23 +66,34 @@ Usage reporting remains queued and best-effort so Revit execution is not blocked
 
 From the first outcome-reporting implementation on 2026-06-29, `Result.Cancelled` was historically written as `blocked`. The local free-usage access block introduced later that day wrote `blocked` with `duration_ms = 0`.
 
-Migration `20260827100626_usage_outcome_semantics.sql` repairs the historical ledger using the verified implementation boundary:
+Migration `20260827100626_usage_outcome_semantics.sql` repaired the then-existing historical ledger using the verified implementation boundary:
 
-- positive-duration historical `blocked` events are reclassified as `cancelled`;
-- the two earlier `blocked` rows without a duration, which predate duration reporting, are also reclassified as `cancelled`;
-- the remaining true zero-duration access blocks remain `blocked` and are marked with `metadata.block_reason = free_usage_exhausted`;
-- all historical rows receive `metadata.outcome_code`.
+- positive-duration historical `blocked` events were reclassified as `cancelled`;
+- the two earlier `blocked` rows without a duration, which predated duration reporting, were also reclassified as `cancelled`;
+- the remaining true zero-duration access blocks remained `blocked` and were marked with `metadata.block_reason = free_usage_exhausted`;
+- all historical rows received `metadata.outcome_code`.
 
-The migration does not alter successful-use counters because only the status label of non-success events changes.
+The migration did not alter successful-use counters because only the status label of non-success events changed.
+
+## Clean production measurement baseline on 2026-08-27
+
+After the licensing/localization and Usage Ledger smoke-test work, operational user and telemetry data was intentionally reset in production to establish a clean measurement baseline.
+
+The reset was an explicit administrative `TRUNCATE ... RESTART IDENTITY` of the transactional licensing, activation, billing and usage tables. It was not caused by the Usage Ledger migration, an application RPC, GitHub Actions or `pg_cron`.
+
+The desired post-reset state is:
+
+- no historical test/customer licensing rows from the validation period;
+- no historical plugin usage/access events from the validation period;
+- no historical successful-use counters from the validation period;
+- schema, RPCs, RLS, plans, plugin catalog and email-membership policies preserved;
+- all future registrations and plugin executions measured from zero as the new production baseline.
+
+Those intentionally removed rows must not be restored or reconstructed unless a separate future decision explicitly changes the baseline policy.
 
 ## Production data protection
 
-On 2026-08-27 an investigation found one administrative statement in `pg_stat_statements` that had executed as PostgreSQL role `postgres` and truncated the transactional licensing, billing and usage tables with `RESTART IDENTITY`. The statement was not part of the Usage Ledger migration, an application RPC, a GitHub workflow or `pg_cron`.
-
-The incident demonstrated two required controls:
-
-1. Runtime roles must not have `TRUNCATE` privileges. PostgreSQL RLS does not protect `TRUNCATE`.
-2. Production tables require a database-level guard even against an accidental owner/admin `TRUNCATE`.
+Even though the 2026-08-27 reset was intentional, routine application/runtime roles do not need destructive table privileges and an accidental repetition must be prevented.
 
 Migration `20260827113118_protect_production_transactional_data.sql` therefore:
 
@@ -91,9 +102,7 @@ Migration `20260827113118_protect_production_transactional_data.sql` therefore:
 - installs `BEFORE TRUNCATE` guards on all 17 NdsApp production tables;
 - raises `NDSAPP_PRODUCTION_TRUNCATE_BLOCKED` for an attempted destructive reset, including one executed as `postgres`.
 
-Any future intentional destructive maintenance must explicitly remove the relevant guard in a reviewed, version-controlled migration. Ad-hoc production `TRUNCATE` is prohibited.
-
-The 2026-08-27 incident removed transactional rows already present in production. Schema/catalog data remained. The database connector available during the incident did not expose point-in-time backup restoration, so detailed deleted rows must not be reconstructed from guesses. Operational data should be re-established through the normal licensing/activation flows; historical recovery requires an authoritative Supabase backup/PITR source if one is available for the project.
+Any future intentional destructive maintenance must explicitly remove the relevant guard in a reviewed, version-controlled migration. Ad-hoc production `TRUNCATE` is prohibited. This makes a future deliberate reset visible, auditable and reversible at the migration level instead of relying on an untracked administrative statement.
 
 ## Plugin catalog contract
 
