@@ -75,6 +75,26 @@ Migration `20260827100626_usage_outcome_semantics.sql` repairs the historical le
 
 The migration does not alter successful-use counters because only the status label of non-success events changes.
 
+## Production data protection
+
+On 2026-08-27 an investigation found one administrative statement in `pg_stat_statements` that had executed as PostgreSQL role `postgres` and truncated the transactional licensing, billing and usage tables with `RESTART IDENTITY`. The statement was not part of the Usage Ledger migration, an application RPC, a GitHub workflow or `pg_cron`.
+
+The incident demonstrated two required controls:
+
+1. Runtime roles must not have `TRUNCATE` privileges. PostgreSQL RLS does not protect `TRUNCATE`.
+2. Production tables require a database-level guard even against an accidental owner/admin `TRUNCATE`.
+
+Migration `20260827113118_protect_production_transactional_data.sql` therefore:
+
+- revokes `TRUNCATE`, `TRIGGER` and `REFERENCES` from `anon`, `authenticated` and `service_role` for the public schema;
+- changes PostgreSQL default privileges so future tables do not automatically restore those unsafe privileges;
+- installs `BEFORE TRUNCATE` guards on all 17 NdsApp production tables;
+- raises `NDSAPP_PRODUCTION_TRUNCATE_BLOCKED` for an attempted destructive reset, including one executed as `postgres`.
+
+Any future intentional destructive maintenance must explicitly remove the relevant guard in a reviewed, version-controlled migration. Ad-hoc production `TRUNCATE` is prohibited.
+
+The 2026-08-27 incident removed transactional rows already present in production. Schema/catalog data remained. The database connector available during the incident did not expose point-in-time backup restoration, so detailed deleted rows must not be reconstructed from guesses. Operational data should be re-established through the normal licensing/activation flows; historical recovery requires an authoritative Supabase backup/PITR source if one is available for the project.
+
 ## Plugin catalog contract
 
 A usage event can only be recorded for an active `plugin_id` present in `public.nds_plugins`. Therefore a new command plugin is not production-ready until all of the following are true:
@@ -87,7 +107,7 @@ A usage event can only be recorded for an active `plugin_id` present in `public.
 
 Never rename an existing `plugin_id` as part of a UI rename. Identifier changes require an explicit data-contract migration.
 
-The 2026-08-27 migration also registers the active `aks_number` and `system_separator` command identifiers, which existed in the Revit catalog but were missing from the backend catalog.
+The 2026-08-27 Usage Ledger outcome migration also registers the active `aks_number` and `system_separator` command identifiers, which existed in the Revit catalog but were missing from the backend catalog.
 
 ## Queries for analytics
 
