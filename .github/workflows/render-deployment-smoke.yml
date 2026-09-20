@@ -1,0 +1,37 @@
+name: Render Deployment Smoke
+
+on:
+  push:
+    branches:
+      - ops/verify-render-payg-removal
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify health and retired PayG route
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_url="https://ndsapp-licensing-api.onrender.com"
+
+          health_code="$(curl -L --retry 6 --retry-delay 10 --connect-timeout 15 --max-time 120 -sS -o health.json -w "%{http_code}" "$base_url/health")"
+          echo "health_status=$health_code"
+          cat health.json || true
+          test "$health_code" = "200"
+
+          payg_get_code="$(curl -L --connect-timeout 15 --max-time 60 -sS -o payg-get.txt -w "%{http_code}" "$base_url/api/internal/payg-billing/run")"
+          echo "payg_get_status=$payg_get_code"
+          cat payg-get.txt || true
+          test "$payg_get_code" = "404"
+
+          payg_post_code="$(curl -L --connect-timeout 15 --max-time 60 -sS -X POST -H "Content-Type: application/json" -d '{}' -o payg-post.txt -w "%{http_code}" "$base_url/api/internal/payg-billing/run")"
+          echo "payg_post_status=$payg_post_code"
+          cat payg-post.txt || true
+          test "$payg_post_code" = "404"
