@@ -21,7 +21,6 @@ builder.Services.AddHttpClient<ILicenseKeyEmailService, ResendLicenseKeyEmailSer
 builder.Services.AddHttpClient<ICustomerPortalContextService, SupabaseCustomerPortalContextService>();
 builder.Services.AddHttpClient<IBillingStatusContextService, SupabaseBillingStatusContextService>();
 builder.Services.AddHttpClient<IEmailService, ResendEmailService>();
-builder.Services.AddScoped<IPaygBillingService, PaygBillingService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Usage Ledger records one idempotent event per plugin execution and provides the source data for adoption analytics, the 10-free-use counter and Pay-as-you-go billing.
+The Usage Ledger records one idempotent event per plugin execution and provides the source data for adoption analytics and the 10-free-use counter. Billing entitlements are resolved separately from telemetry.
 
 The canonical event table is `public.nds_plugin_usage_events`. Successful-use counters are stored in `public.nds_plugin_usage_counters`.
 
@@ -110,7 +110,7 @@ A usage event can only be recorded for an active `plugin_id` present in `public.
 
 1. The Revit command inherits from `NdsExternalCommand`.
 2. `NdsPluginCatalog` maps the command class to a stable `plugin_id`.
-3. The same `plugin_id` exists in `public.nds_plugins` with the intended free/paid, Pro and PayG configuration.
+3. The same `plugin_id` exists in `public.nds_plugins` with the intended `free`/`paid` classification and Pro inclusion setting.
 4. The plugin README documents that identifier and its licensing/usage behavior.
 5. A test execution produces the expected ledger event.
 
