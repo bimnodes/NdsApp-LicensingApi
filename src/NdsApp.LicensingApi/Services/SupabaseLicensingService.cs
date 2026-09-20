@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -132,98 +131,6 @@ public sealed class SupabaseLicensingService : ILicensingService
         };
 
         return PostRpcAsync("nds_sync_stripe_subscription", payload, cancellationToken);
-    }
-    public Task<JsonElement> ActivatePaygPostpaidFromSetupAsync(
-        Guid activationId,
-        string machineHash,
-        string stripeCustomerId,
-        string stripeCheckoutSessionId,
-        string? stripeSetupIntentId,
-        string? customerEmail,
-        CancellationToken cancellationToken)
-    {
-        var payload = new Dictionary<string, object?>
-        {
-            ["p_activation_id"] = activationId,
-            ["p_machine_hash"] = machineHash,
-            ["p_stripe_customer_id"] = stripeCustomerId,
-            ["p_stripe_checkout_session_id"] = stripeCheckoutSessionId,
-            ["p_stripe_setup_intent_id"] = TrimToNull(stripeSetupIntentId),
-            ["p_customer_email"] = TrimToNull(customerEmail)
-        };
-
-        return PostRpcAsync("nds_activate_payg_postpaid_from_setup", payload, cancellationToken);
-    }
-
-    public Task<JsonElement> PreparePaygBillingRunAsync(DateOnly periodStart, DateOnly periodEnd, CancellationToken cancellationToken)
-    {
-        var payload = new Dictionary<string, object?>
-        {
-            ["p_period_start"] = periodStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            ["p_period_end"] = periodEnd.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
-        };
-
-        return PostRpcAsync("nds_prepare_payg_billing_run", payload, cancellationToken);
-    }
-
-    public Task<JsonElement> GetPaygBillingInvoicesAsync(Guid billingRunId, CancellationToken cancellationToken)
-    {
-        var payload = new Dictionary<string, object?>
-        {
-            ["p_billing_run_id"] = billingRunId
-        };
-
-        return PostRpcAsync("nds_get_payg_billing_invoices", payload, cancellationToken);
-    }
-
-    public Task<JsonElement> MarkPaygInvoiceCreatedAsync(Guid paygInvoiceId, string stripeInvoiceId, string stripeInvoiceItemId, CancellationToken cancellationToken)
-    {
-        var payload = new Dictionary<string, object?>
-        {
-            ["p_payg_invoice_id"] = paygInvoiceId,
-            ["p_stripe_invoice_id"] = stripeInvoiceId,
-            ["p_stripe_invoice_item_id"] = stripeInvoiceItemId
-        };
-
-        return PostRpcAsync("nds_mark_payg_invoice_created", payload, cancellationToken);
-    }
-
-    public Task<JsonElement> MarkPaygInvoiceFailedAsync(Guid paygInvoiceId, string errorMessage, CancellationToken cancellationToken)
-    {
-        var payload = new Dictionary<string, object?>
-        {
-            ["p_payg_invoice_id"] = paygInvoiceId,
-            ["p_error_message"] = errorMessage
-        };
-
-        return PostRpcAsync("nds_mark_payg_invoice_failed", payload, cancellationToken);
-    }
-
-    public Task<JsonElement> CompletePaygBillingRunAsync(Guid billingRunId, CancellationToken cancellationToken)
-    {
-        var payload = new Dictionary<string, object?>
-        {
-            ["p_billing_run_id"] = billingRunId
-        };
-
-        return PostRpcAsync("nds_complete_payg_billing_run", payload, cancellationToken);
-    }
-
-    public Task<JsonElement> SyncPaygInvoiceStatusAsync(string stripeInvoiceId, string? stripeInvoiceStatus, string eventType, JsonElement rawData, CancellationToken cancellationToken)
-    {
-        object rawDataPayload = rawData.ValueKind == JsonValueKind.Undefined
-            ? new Dictionary<string, object?>()
-            : rawData;
-
-        var payload = new Dictionary<string, object?>
-        {
-            ["p_stripe_invoice_id"] = stripeInvoiceId,
-            ["p_stripe_invoice_status"] = stripeInvoiceStatus,
-            ["p_event_type"] = eventType,
-            ["p_raw_data"] = rawDataPayload
-        };
-
-        return PostRpcAsync("nds_sync_payg_invoice_status", payload, cancellationToken);
     }
 
     private static string? TrimToNull(string? value)
