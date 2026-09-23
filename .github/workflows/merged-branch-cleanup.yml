@@ -100,12 +100,20 @@ jobs:
                 return;
               }
 
-              await github.rest.git.deleteRef({
-                owner,
-                repo,
-                ref: `heads/${branch}`
-              });
-              core.info(`Deleted merged branch ${branch} from PR #${pr.number}.`);
+              try {
+                await github.rest.git.deleteRef({
+                  owner,
+                  repo,
+                  ref: `heads/${branch}`
+                });
+                core.info(`Deleted merged branch ${branch} from PR #${pr.number}.`);
+              } catch (error) {
+                if (error.status === 404 || error.status === 422) {
+                  core.info(`Branch ${branch} was already deleted concurrently.`);
+                  return;
+                }
+                throw error;
+              }
             }
 
             if (context.eventName === 'pull_request') {
