@@ -1,0 +1,136 @@
+name: Merged Branch Cleanup
+
+on:
+  pull_request:
+    types:
+      - closed
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    name: Delete merged technical branches
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Reconcile merged branches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const currentRepository = `${owner}/${repo}`;
+            const preservedExact = new Set([
+              'main',
+              'master',
+              'develop',
+              'development',
+              'staging',
+              'production'
+            ]);
+            const preservedPrefixes = ['release/', 'review/'];
+
+            function shouldPreserve(branch) {
+              return preservedExact.has(branch)
+                || preservedPrefixes.some(prefix => branch.startsWith(prefix));
+            }
+
+            async function deleteMergedHead(pr) {
+              if (!pr?.merged_at) {
+                return;
+              }
+
+              const branch = pr.head?.ref;
+              const headRepository = pr.head?.repo?.full_name;
+              const mergedHeadSha = pr.head?.sha;
+
+              if (!branch || !mergedHeadSha || headRepository !== currentRepository) {
+                return;
+              }
+
+              if (shouldPreserve(branch)) {
+                core.info(`Preserving ${branch}.`);
+                return;
+              }
+
+              const openPrs = await github.paginate(
+                github.rest.pulls.list,
+                {
+                  owner,
+                  repo,
+                  state: 'open',
+                  head: `${owner}:${branch}`,
+                  per_page: 100
+                }
+              );
+
+              if (openPrs.length > 0) {
+                core.info(`Preserving ${branch}: it still has an open pull request.`);
+                return;
+              }
+
+              let currentRef;
+              try {
+                currentRef = await github.rest.git.getRef({
+                  owner,
+                  repo,
+                  ref: `heads/${branch}`
+                });
+              } catch (error) {
+                if (error.status === 404) {
+                  core.info(`Branch ${branch} is already absent.`);
+                  return;
+                }
+                throw error;
+              }
+
+              const currentSha = currentRef.data.object.sha;
+              if (currentSha !== mergedHeadSha) {
+                core.info(
+                  `Preserving ${branch}: branch advanced after merge ` +
+                  `(${currentSha} != ${mergedHeadSha}).`
+                );
+                return;
+              }
+
+              await github.rest.git.deleteRef({
+                owner,
+                repo,
+                ref: `heads/${branch}`
+              });
+              core.info(`Deleted merged branch ${branch} from PR #${pr.number}.`);
+            }
+
+            if (context.eventName === 'pull_request') {
+              const pr = context.payload.pull_request;
+              if (pr?.merged === true) {
+                await deleteMergedHead(pr);
+              }
+              return;
+            }
+
+            const closedPrs = await github.paginate(
+              github.rest.pulls.list,
+              {
+                owner,
+                repo,
+                state: 'closed',
+                sort: 'updated',
+                direction: 'desc',
+                per_page: 100
+              }
+            );
+
+            for (const pr of closedPrs) {
+              if (!pr.merged_at) {
+                continue;
+              }
+              await deleteMergedHead(pr);
+            }
