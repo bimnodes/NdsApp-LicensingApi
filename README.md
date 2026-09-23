@@ -43,3 +43,11 @@ Health check:
 ```text
 GET /health
 ```
+
+## Supabase migrations
+
+Database schema and RPC changes are versioned in `supabase/migrations`.
+Applied migrations are immutable, and new `public` tables/functions must
+declare Data API privileges explicitly instead of relying on Supabase defaults.
+
+See `docs/supabase-migration-governance.md` for the enforced migration rules.
