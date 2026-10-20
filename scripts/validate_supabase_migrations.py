@@ -25,6 +25,11 @@ FUNCTION_CREATE_RE = re.compile(
     r"(?P<name>public\.[A-Za-z_][A-Za-z0-9_$]*)\s*\(",
     re.IGNORECASE,
 )
+SEQUENCE_CREATE_RE = re.compile(
+    r"\bcreate\s+sequence\s+(?:if\s+not\s+exists\s+)?"
+    r"(?P<name>public\.[A-Za-z_][A-Za-z0-9_$]*)",
+    re.IGNORECASE,
+)
 
 
 def _git(*args: str) -> str:
@@ -58,6 +63,7 @@ def validate_sql(path: str, sql: str) -> list[str]:
 
     tables = sorted({m.group("name") for m in TABLE_CREATE_RE.finditer(sql)})
     functions = sorted({m.group("name") for m in FUNCTION_CREATE_RE.finditer(sql)})
+    sequences = sorted({m.group("name") for m in SEQUENCE_CREATE_RE.finditer(sql)})
 
     for table in tables:
         escaped = _object_pattern(table)
@@ -105,6 +111,19 @@ def validate_sql(path: str, sql: str) -> list[str]:
             errors.append(
                 f"{path}: {function} is created/replaced without an explicit "
                 "GRANT EXECUTE or REVOKE declaring RPC/function access."
+            )
+
+    for sequence in sequences:
+        escaped = _object_pattern(sequence)
+        access_statement = re.search(
+            rf"\b(?:grant|revoke)\b[^;]*\bon\s+sequence\s+{escaped}\b[^;]*;",
+            sql,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if access_statement is None:
+            errors.append(
+                f"{path}: {sequence} is created without an explicit GRANT or REVOKE "
+                "declaring sequence access."
             )
 
     return errors
