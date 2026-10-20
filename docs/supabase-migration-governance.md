@@ -21,10 +21,40 @@ operational state.
    `service_role`.
 7. Internal tables used only behind owner/`SECURITY DEFINER` functions should
    explicitly revoke direct Data API access rather than depending on defaults.
+8. Explicitly created `public` sequences must also declare their access intent.
+   If a future Data API table needs client-side inserts that consume a sequence,
+   grant only the sequence privileges required by that role; otherwise revoke
+   direct sequence access.
+9. Trigger functions, event-trigger functions and implementation-only helper
+   functions in `public` are not API endpoints. Revoke direct `EXECUTE` from
+   Data API roles even when PostgreSQL itself invokes them through a trigger.
 
 The CI validator in `scripts/validate_supabase_migrations.py` enforces these
 rules for newly added migrations and rejects edits/deletions of existing
 migration files.
+
+## October 2026 Data API default change
+
+Supabase is removing automatic Data API grants for newly created objects in
+existing projects. NdsApp deliberately does not depend on either the old or the
+new platform default.
+
+Migration
+`20261020134000_supabase_data_api_explicit_privileges.sql` records the intended
+production posture:
+
+- future `public` tables do not receive automatic CRUD grants for
+  `anon`, `authenticated` or `service_role`;
+- future `public` functions do not receive automatic `EXECUTE`;
+- future `public` sequences do not receive automatic usage/select privileges;
+- current backend-facing RPCs are executable by `service_role` only;
+- trigger/event-trigger and implementation-only helpers are not directly
+  executable through the Data API.
+
+Changing those defaults does not remove `USAGE` on the exposed `public`
+schema and does not disable the Data API. NdsApp-LicensingApi intentionally uses
+PostgREST RPC endpoints with its server-side service role, so the Data API must
+remain available unless the backend architecture is changed explicitly.
 
 ## Historical production migration recovery
 

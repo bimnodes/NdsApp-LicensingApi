@@ -50,6 +50,19 @@ class MigrationGovernanceTests(unittest.TestCase):
         """
         self.assertEqual([], validate_sql("supabase/migrations/20990101_good_rpc.sql", sql))
 
+    def test_sequence_requires_explicit_access_policy(self):
+        sql = "create sequence public.client_rows_id_seq;"
+        errors = validate_sql("supabase/migrations/20990101_bad_sequence.sql", sql)
+        self.assertTrue(any("declaring sequence access" in e for e in errors))
+
+    def test_sequence_with_explicit_revoke_passes(self):
+        sql = """
+        create sequence public.internal_sequence;
+        revoke all on sequence public.internal_sequence
+        from public, anon, authenticated, service_role;
+        """
+        self.assertEqual([], validate_sql("supabase/migrations/20990101_good_sequence.sql", sql))
+
     def test_historical_recovery_marker_is_allowlisted(self):
         sql = """
         -- nds-migration-governance: restored-applied-migration
